@@ -1,0 +1,117 @@
+Database Name: messenger_database
+Tables:
+
+RegisteredUsers:
+Field             | Type        | Null | Key | Default           | Extra
+UserID 		    INT 	  NO	 PRI 	NULL		  AUTO_INCREMENT, UNIQUE, PRIMARY KEY
+Username	   VARCHAR(32)    NO		NULL	  	  UNIQUE
+CreateTimestamp	    DATETIME      YES         CURRENT_TIMESTAMP  DEFAULT_GENERATED
+ModifiedTimestamp   DATETIME      YES           NULL 		 on update CURRENT_TIMESTAMP
+PasswordHash	    TEXT	  NO		NULL
+PasswordSalt        TEXT	  NO            NULL
+
+
+MySQL Syntax:
+CREATE TABLE RegisteredUsers (
+	UserID INT NOT NULL AUTO_INCREMENT,
+	UserName VARCHAR(32) NOT NULL,
+	CreateTimestamp DATETIME DEFAULT CURRENT_TIMESTAMP, 
+	ModifiedTimestamp DATETIME ON UPDATE CURRENT_TIMESTAMP,
+	PasswordHash TEXT NOT NULL,
+	PasswordSalt TEXT NOT NULL,
+	PRIMARY KEY(UserID),
+	CONSTRAINT identifiers UNIQUE (UserID, UserName)
+);
+
+FriendRequests:
+CREATE TABLE FriendRequests (
+	UserID INT NOT NULL,
+	UserName VARCHAR(32) NOT NULL,
+	FriendUserID INT NOT NULL,
+	FriendUserName VARCHAR(32) NOT NULL,
+	RequestAddedTimestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY(UserID, FriendUserID),
+	FOREIGN KEY(UserID) REFERENCES RegisteredUsers(UserID) ON DELETE CASCADE,
+	FOREIGN KEY(FriendUserID) REFERENCES RegisteredUsers(UserID) ON DELETE CASCADE
+);
+
+
+
+FriendPairs:
+Field                	| Type        | Null 	| Key    	| Default           | Extra
+UserID 		    	   INT 	  	 NO	  PRI 		  NULL		 	PRIMARY KEY
+FriendUserID           	   INT 	 	 NO	  PRI 		  NULL		 	PRIMARY KEY
+FriendUserName             VARCHAR(32)   NO                       NULL
+PrivateChatID		   INT           NO                       NULL 
+FriendAddedTimestamp	  DATETIME      YES         		  CURRENT_TIMESTAMP     DEFAULT_GENERATED
+
+
+CREATE TABLE FriendPairs (
+	UserID INT NOT NULL,
+	FriendUserID INT NOT NULL,
+	FriendUserName VARCHAR(32) NOT NULL,
+	PrivateChatID INT NOT NULL,
+	FriendAddedTimestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY(UserID, FriendUserID),
+	FOREIGN KEY(UserID) REFERENCES RegisteredUsers(UserID) ON DELETE CASCADE,
+	FOREIGN KEY(FriendUserID) REFERENCES RegisteredUsers(UserID) ON DELETE CASCADE
+);
+
+
+Chats:
+Field             | Type        | Null | Key | Default           | Extra
+ChatID		    INT           NO     PRI   NULL                AUTO_INCREMENT
+OwnerID		    INT           NO           NULL           
+CreateTimestamp	    DATETIME      YES         CURRENT_TIMESTAMP  DEFAULT_GENERATED
+
+CREATE TABLE Chats(
+	ChatID INT NOT NULL AUTO_INCREMENT,
+	OwnerID INT NOT NULL,
+	CreateTimestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY(ChatID)
+);
+
+
+UserChatPairs:
+Field             | Type        | Null | Key | Default           | Extra
+UserID		    INT 	  NO     PRI                     
+ChatID              INT           NO     PRI
+
+
+
+CREATE TABLE UserChatPairs (
+	UserID INT NOT NULL,
+	ChatID INT NOT NULL,
+	PRIMARY KEY(UserID, ChatID),
+	FOREIGN KEY(UserID) REFERENCES RegisteredUsers(UserID) ON DELETE CASCADE,
+	FOREIGN KEY(ChatID) REFERENCES Chats(ChatID) ON DELETE CASCADE
+);
+
+
+
+Messages:
+Field             | Type        | Null | Key | Default           | Extra
+MessageID	    INT		  NO     PRI   NULL 		   AUTO_INCREMENT
+ChatID              INT           NO           NULL
+SenderID	    INT   	  NO           NULL      
+SenderName          VARCHAR(32)   NO           NULL
+Message		    TEXT          NO           NULL
+CreateTimestamp	    DATETIME      YES         CURRENT_TIMESTAMP  DEFAULT_GENERATED
+ModifiedTimestamp   DATETIME      YES           NULL 		 on update CURRENT_TIMESTAMP
+
+CREATE TABLE Messages (
+	MessageID INT NOT NULL AUTO_INCREMENT,
+	ChatID INT NOT NULL,
+	SenderID INT NOT NULL,
+	SenderName VARCHAR(32) NOT NULL,
+	Message TEXT NOT NULL,
+	CreateTimestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+	ModifiedTimestamp DATETIME ON UPDATE CURRENT_TIMESTAMP,
+	PRIMARY KEY(MessageID),
+	FOREIGN KEY(ChatID) REFERENCES Chats(ChatID) ON DELETE CASCADE
+);
+
+
+
+
+

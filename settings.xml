@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">
+<properties>
+<comment/>
+<entry key="Minimum Username Length">32</entry>
+<entry key="Maximum Password Length">128</entry>
+<entry key="Maximum Username Length">32</entry>
+<entry key="Port">3000</entry>
+</properties>

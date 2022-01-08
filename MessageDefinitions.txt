@@ -1,0 +1,168 @@
+// The first three characters of a transmission MUST BE as follows:
+//
+// [Index 0] - Multiple Message Indicator - If T (True), the ServerThread stores the message in a transmission buffer.
+// When an F (False) transmission is received following a T transmission or multiple T transmissions, the
+// buffer contents are sent to be parsed and the buffer is cleared.
+// [Index 1-2] - Opcode - Determines how the remainder of the message is parsed by being assigned to a bitmask.
+//
+//
+//As such, all information in a server message __must__ be in the bitmask appropriate order with the
+//appropriate sizes, and a field __must__ not be present if not required by the given Opcode.
+//
+// Padding of input strings is done using asterisks (*) at this time, using the Parser.Pack function.
+//
+//The bitmask order is as follows:
+//
+// 00001: UserID - 32 characters - Present for all messages except login and registration.
+// 00010: UserName - 32 characters - Present for login, registration, and when adding or searching for a friend.
+// 00100: Password - 128 characters - Present only for login and registration.
+// 01000: Session ID - 32 characters - Required for all non-login and non-registration interactions. Very weakly verifies connection
+// integrity.
+// 10000: Chat ID - 32 characters - Identifies a single chat between one or multiple people.
+//
+// The final component of a received transmission, the Message, is whatever remains after the item determined by the bit mask are parsed out.
+//
+// The core server opcodes with their bitmasks are:
+//
+// IR (Initial Registration):  00110  /  6
+// LR (Login Request):  00110  /   6
+// PF (Pull Friends):  01001  /   9
+// AF (Add Friend):  01011  / 11
+// PR (Pull Friend Requests): 01001 / 9
+// US (User Search): 01011 / 11
+// PC (Pull User-Chat Pairs) / 01001 / 9
+// PM (Pull Messages From Chat):  11001    / 25
+// SM (Send Message):  11001   /   25
+// HB (Heartbeat): 00000 / 0
+
+// The core client opcodes with their bitmasks are:
+//
+// RU (Registration unsuccessful):  00010 / 2
+// RS (Registration successful):  00010  / 2
+// LU (Login unsuccessful):	 00010 / 2
+// LS (Login successful):  01011 / 3
+// FP (Friend Push): 01001 / 9
+// FR (Friend Request(s) Push): 01001 / 9
+// UR (User search Results) : 01001 / 9
+// CP (User-Chat Pairs Push): 01001 / 9
+// MP (Message Push for one chat): 11011 / 27  
+// CN  (Chat Notification): 11001 / 25
+// AM (Administrative Message): 01001 / 9
+// HB (Heartbeat): 00000 / 0
+
+
+
+---- Packet format ----
+All messages sent from both client and server contain the following information: 
+
+Description:					Index in Packet String: 	Purpose:
+
+[Multiple Message Indicator - 1 char]		[0]				Indicates whether to combine the following transmission with this one.
+[Requested connection type - 2 chars]  		[1-2]				Used to verify chain of custody of the packet.
+
+
+From there, message types differ on their contents and must be parsed appropriately.
+
+----------------------------
+Client messages:
+
+
+Description:					Index in Packet String:		Purpose:
+------
+Initial Registration[IR] and Login Request[LR]:
+
+[User Name - 32 chars]       			[2-34]				Identifies the source(sent from client) or destination(sent from server) of the packet.
+[Password - Up to 128 chars]			[35-End]			Weakly ensures that the message is coming from the correct client or the genuine server
+
+------
+Pull Friends[PM]:
+
+[User ID - 32 chars]       			[2-34]				Identifies the source(sent from client) or destination(sent from server) of the packet.
+[Session ID - 32 chars]				[35-66]				Weakly ensures that the message is coming from the correct client or the genuine server
+
+
+------
+Add Friend[AF]:
+
+[User ID - 32 chars]       			[2-34]				Identifies the source(sent from client) or destination(sent from server) of the packet.
+[Session ID - 32 chars]				[35-66]				Weakly ensures that the message is coming from the correct client or the genuine server
+[Friend Username - 32 chars]			[67-98]			Contains the username of the friend being added
+
+
+
+------
+Send Message[SM]:
+
+[Session ID - 32 chars]				[35-66]				Weakly ensures that the message is coming from the correct client or the genuine server
+[Chat ID - 32 chars]				[67-98]			Contains the Chat ID the message is being sent in
+[Message - No strict limit] 			[99-End]			Contains the message being sent
+
+------
+Pull Chat[PC]:
+
+[User ID - 32 chars]       			[2-34]				Identifies the source(sent from client) or destination(sent from server) of the packet.
+[Session ID - 32 chars]				[35-66]				Weakly ensures that the message is coming from the correct client or the genuine server
+[Chat ID - 32 chars]				[67-98]			Contains the Chat ID that messages are being requested for
+
+---------------------------------------------------------------------------------------
+Server Messages:
+
+Description:					Index in Packet String:		Purpose:
+
+-------
+Registration Successful[RS]: 
+[Message - 256 char max]			[35-End]			A message indicating that registration has been successful.
+
+
+-------
+Login Successful[LS]: 
+
+[Session ID - 32 chars]				[35-66]				Provides the client with a unique session ID allowing verification of further communications
+[Message - 256 char max]			[67-End]			A message indicating that login has been successful.
+
+-------
+Registration Unsuccessful[RU]: 
+
+[Message - 256 char max]			[35-End]			A message indicating that registration has been unsuccessful and a brief explanation.
+
+
+-------
+Login Unsuccessful[RU]: 
+
+[Message - 256 char max]			[35-End]			A message indicating that login has been unsuccessful and a brief explanation.
+
+
+-------
+Friend Push[FP]:
+
+[Session ID - 32 chars]				[35-66]				Weakly ensures that the message is coming from the correct client or the genuine server
+[JSON string - no strict limit]			[67-End]			A json string containing a list of the user's friend names
+
+
+
+-------
+Message Push[MP]:
+
+[Session ID - 32 chars]				[35-66]				Weakly ensures that the message is coming from the correct client or the genuine server
+[Chat ID - 32 chars]				[67-98]			Contains the Chat ID that messages are being sent for
+[JSON string - no strict limit]			[99-End]			A json string containing a list of the user's friend names
+
+------
+Verify Add[VA]:
+
+[Session ID - 32 chars]				[35-66]				Weakly ensures that the message is coming from the correct client or the genuine server
+[Friend Username - 32 chars]			[67-98]				Contains the username of the friend that was added
+
+
+------
+Verify Send[VS]:
+
+[Session ID - 32 chars]				[35-66]				Weakly ensures that the message is coming from the correct client or the genuine server
+
+
+
+----------
+Administrative Message[AM]:
+
+[Message - 256 char max]			[35-End]			An administrative message, usually indicating that a non-login/registration error has occurred.
+
