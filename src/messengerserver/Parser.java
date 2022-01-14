@@ -2,7 +2,6 @@ package messengerserver;
 import java.util.HashMap;
 
 
-
 // The first three characters of a transmission MUST BE as follows:
 //
 // [Index 0] - Multiple Message Indicator - If T (True), the ServerThread stores the message in a transmission buffer.
@@ -23,7 +22,7 @@ import java.util.HashMap;
 // 00100: Password - 128 characters - Present only for login and registration.
 // 01000: Session ID - 32 characters - Required for all non-login and non-registration interactions. Very weakly verifies connection
 // integrity.
-// 10000: Chat ID - 32 characters - Identifies a single chat between one or multiple people.
+// 10000: Chat ID - 8 characters - Identifies a single chat between one or multiple people.
 //
 // The final component of a received transmission, the Message, is whatever remains after the item determined by the bit mask are parsed out.
 //
@@ -31,14 +30,17 @@ import java.util.HashMap;
 //
 // IR (Initial Registration):  00110  /  6
 // LR (Login Request):  00110  /   6
+// LO (Logout Request):  01001  /   9
 // PF (Pull Friends):  01001  /   9
 // AF (Add Friend):  01011  / 11
+// PR (Pull Friend Requests): 01001 / 9
 // US (User Search): 01011 / 11
 // PC (Pull User-Chat Pairs) / 01001 / 9
 // PM (Pull Messages From Chat):  11001    / 25
-// SM (Send Message):  11011   /   27
+// CC (Create Chat): 01011 / 11  -- For this code, the "Message" component stores the desired chat name
+// SM (Send Message):  11001   /   27
 // HB (Heartbeat): 00000 / 0
-
+//
 // The core client opcodes with their bitmasks are:
 //
 // RU (Registration unsuccessful):  00010 / 2
@@ -78,9 +80,12 @@ public class Parser {
 		
 		opcodeMap.put("IR", 6);
 		opcodeMap.put("LR", 6);
+		opcodeMap.put("LO", 9);
 		opcodeMap.put("PF", 9);
 		opcodeMap.put("AF", 11);
 		opcodeMap.put("PR", 9);
+		opcodeMap.put("PC", 9);
+		opcodeMap.put("CC", 11);
 		opcodeMap.put("US", 11);
 		opcodeMap.put("UC", 9);
 		opcodeMap.put("PM", 25);
@@ -116,7 +121,6 @@ public class Parser {
 		int mask = 0;
 		if (opcodeMap.containsKey(opcode)) {
 			mask = opcodeMap.get(opcode);
-
 		}
 		else {
 			
@@ -203,7 +207,7 @@ public class Parser {
 		{
 
 			try {
-				returnMap.put("ChatID", unpack(message.substring(0, chatIDLength)));
+				returnMap.put("ChatID", message.substring(0, chatIDLength));
 				message = message.substring(chatIDLength);
 				
 				Debugger.record("Parser processed at bit 5 for opcode: " + opcode + " with input: " + message, debugMask);
@@ -211,7 +215,7 @@ public class Parser {
 			}
 			catch (Exception e) 
 			{
-				Debugger.record("Parser failed at bit 5 for opcode: " + opcode + " with input: " + message, debugMask + 1);
+				Debugger.record("Parser failed at bit 5 for opcode: " + opcode + " with input: " + message + " Exception: " + e.getMessage(), debugMask + 1);
 				returnMap.put("Opcode", "ER");
 				return returnMap;
 			}

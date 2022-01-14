@@ -28,8 +28,8 @@ class DatabaseConnectionTest {
 
         connection.createUser("deleteuser", "password", "salty");
 
-        createdChatOne = connection.createChat(6);
-        createdChatThree = connection.createChat(5);
+        createdChatOne = connection.createChat("Test chat Six", 6, "No creator");
+        createdChatThree = connection.createChat("Test chat 5", 5, "No creator");
 
 
         System.out.println("Created new chat: " + createdChatOne);
@@ -238,7 +238,7 @@ class DatabaseConnectionTest {
         connection = DatabasePool.getConnection();
 
         int creatorID = 6; // ID of user "testuserThree"
-        int chatID = connection.createChat(creatorID);
+        int chatID = connection.createChat("Testy chat", creatorID, "No Creator");
 
         assertTrue(chatID > 0);
         createdChatTwo = chatID;

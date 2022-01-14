@@ -48,7 +48,7 @@ public class NotificationThread implements Runnable
                     // Building the notification.
                     RegisteredUser user = loggedInUsers.get(userID);
 
-                    builder = new StringBuilder("FCN");
+                    builder = new StringBuilder("CN");
                     builder.append(Parser.pack(user.getUserIDstr(), ServerController.MAX_USERNAME_LENGTH));
                     builder.append(user.getSessionID());
                     builder.append(chatIDstr);

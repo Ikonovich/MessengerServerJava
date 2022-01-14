@@ -11,7 +11,7 @@ public class Debugger {
 	// Bit 4 = Security-related message flag.
 	 
 	
-	private static final int printMask = 4;
+	private static final int printMask = 29;
 	
 	
 	public static synchronized void print(String message) 

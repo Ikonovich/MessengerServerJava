@@ -16,19 +16,14 @@ public class ServerThread implements Runnable
 
 
 	
-	int debugMask = 4; // Indicates the bit mask for Debugger usage. +1 the debugMask to indicate an error message.
+	private static int debugMask = 4; // Indicates the bit mask for Debugger usage. +1 the debugMask to indicate an error message.
 	
 	private Socket socket;
 
 	private PrintWriter writer;
 	private BufferedReader reader;
 
-	private static final int PACKET_SIZE = 1024; // Determines the maximum size of transmitted packets.
 
-	// Keeps track of information for sending heartbeans (keep-alive signals), in milliseconds.
-	private static final long MAX_TIMEOUT = 5000;
-	private static final long HEARTBEAT_WAIT = 2000; // How long after the last read we should wait before sending a heartbeat.
-	private static final long HEARTBEAT_INTERVAL = 2000; // How long we should wait between heartbeats.
 	private long lastHeartbeat = 0; // Stores when the last heartbeat was sent.
 	private long lastReadTime = 0;
 
@@ -66,7 +61,7 @@ public class ServerThread implements Runnable
     }
 
 	private boolean isAlive() {
-		return (System.currentTimeMillis() - lastReadTime) < MAX_TIMEOUT;
+		return (System.currentTimeMillis() - lastReadTime) < ServerController.MAX_TIMEOUT;
 	}
 
 	private void sendHeartbeat()
@@ -89,14 +84,15 @@ public class ServerThread implements Runnable
 
 			while(true) {
 
-				if ((System.currentTimeMillis() - lastReadTime) > MAX_TIMEOUT)
+				if ((System.currentTimeMillis() - lastReadTime) > ServerController.MAX_TIMEOUT)
 				{
 					onExit();
+					Debugger.record("Thread " + getThreadID() + " is exiting.", debugMask);
 					return;
 				}
-				else if ((System.currentTimeMillis() - lastReadTime) > HEARTBEAT_WAIT)
+				else if ((System.currentTimeMillis() - lastReadTime) > ServerController.HEARTBEAT_WAIT)
 				{
-					if ((System.currentTimeMillis() - lastHeartbeat) > HEARTBEAT_INTERVAL)
+					if ((System.currentTimeMillis() - lastHeartbeat) > ServerController.HEARTBEAT_INTERVAL)
 						sendHeartbeat();
 						lastHeartbeat = System.currentTimeMillis();
 				}
@@ -133,16 +129,17 @@ public class ServerThread implements Runnable
 		Debugger.record("Thread " + getThreadID() + " is exiting.", debugMask);
 		
 	}
-	
-	public void transmit(String message)
+
+
+	private void transmit(String message)
 	{
 
 		Debugger.record("Transmitting with message: " + message, debugMask);
 
 
-		if (message.length() > PACKET_SIZE)
+		if (message.length() > ServerController.PACKET_SIZE)
 		{
-			int interval = PACKET_SIZE - 74; // 74 is the size of the Opcode + userID + SessionID + chatID.
+			int interval = ServerController.PACKET_SIZE - 74; // 74 is the size of the Opcode + userID + SessionID + chatID.
 			String header = message.substring(0, 74);
 			String transmitMessage = message.substring(74);
 
@@ -183,6 +180,63 @@ public class ServerThread implements Runnable
 		lastTransmission = message;
 	}
 
+	/**
+	 * This is a public, static version of the transmit function that allows other objects to transmit if they
+	 * have a printwriter to transmit on.
+	 * @param message The message to be transmitted.
+	 * @param writer The writer to be written to.
+	 */
+
+	public static void transmit(String message, PrintWriter writer)
+	{
+
+		Debugger.record("Transmitting with message: " + message, debugMask);
+
+
+		if (message.length() > ServerController.PACKET_SIZE)
+		{
+			int interval = ServerController.PACKET_SIZE - 74; // 74 is the size of the Opcode + userID + SessionID + chatID.
+			String header = message.substring(0, 74);
+			String transmitMessage = message.substring(74);
+
+			Debugger.record("Transmitting multi-message of size " + message.length() + " with header " + header, debugMask);
+
+
+			// Transmits all parts of the message with a message that follows them.
+			do
+			{
+				Debugger.record("Transmitting multi-message component " + transmitMessage.substring(0, interval), debugMask);
+				writer.print("T" + header + transmitMessage.substring(0, interval));
+				writer.flush();
+
+				transmitMessage = transmitMessage.substring(interval);
+				try
+				{
+					Thread.sleep(100);
+				}
+				catch (Exception e)
+				{
+					Debugger.record("ServerThread failed to sleep during transmit.", debugMask);
+				}
+			} while (transmitMessage.length() > interval);
+
+			// Transmits the last segment of the message, with partial indicator set to F.
+
+			Debugger.record("Transmitting final message component " + transmitMessage, debugMask);
+			writer.print("F" + header + transmitMessage);
+			writer.flush();
+		}
+		else
+		{
+			String transmitMessage = "F" + message;
+			writer.print(transmitMessage);
+			writer.flush();
+		}
+
+	}
+
+
+
 	public String getLastTransmission()
 	{
 		return lastTransmission;
@@ -214,6 +268,9 @@ public class ServerThread implements Runnable
 				case "LR":
 					transmit(login(inputMap));
 					return;
+				case "LO":
+					logout(inputMap);
+					return;
 				case "PF":
 					pullFriends(inputMap);
 					return;
@@ -229,7 +286,9 @@ public class ServerThread implements Runnable
 				case "PC":
 					pullUserChatPairs(inputMap);
 					return;
-
+				case "CC":
+					createChat(inputMap);
+					return;
 				case "PM":
 					pullMessages(inputMap);
 					return;
@@ -288,38 +347,44 @@ public class ServerThread implements Runnable
 	}
 
 	public boolean register(HashMap<String, String> input) {
-		
-		String username = input.get("UserName");
-		String password = input.get("Password");
-		
-		
-		DatabaseConnection connection = DatabasePool.getConnection();
-		
-		HashMap<String, String> userResults = connection.getUser(username);
-		
-		if (userResults.containsKey("UserName")) {
-			// A user with this name was found in the database.
-			transmit("RU" + "The name you are trying to register is already taken.");
-			Debugger.record("A user attempted to register the name " + username + ", but was rejected because it is taken.", debugMask + 1);
+
+		try {
+			String username = input.get("UserName");
+			String password = input.get("Password");
+
+
+			DatabaseConnection connection = DatabasePool.getConnection();
+
+			HashMap<String, String> userResults = connection.getUser(username);
+
+			if (userResults.containsKey("UserName")) {
+				// A user with this name was found in the database.
+				transmit("RU" + Parser.pack(username, ServerController.MAX_USERNAME_LENGTH) + "The name you are trying to register is already taken.");
+				Debugger.record("A user attempted to register the name " + username + ", but was rejected because it is taken.", debugMask + 1);
+				connection.close();
+				return false;
+			}
+
+			String passwordSalt = Cryptographer.generateRandomString(SALT_LENGTH);
+			String passwordHash = Cryptographer.hashPassword(password, passwordSalt);
+
+			boolean createStatus = connection.createUser(username, passwordHash, passwordSalt);
+
 			connection.close();
-			return false;
-		}
-		
-		String passwordSalt = Cryptographer.generateRandomString(SALT_LENGTH);
 
-		
-		boolean createStatus = connection.createUser(username, password, passwordSalt);
-		
-		connection.close();
-		
-		if (createStatus == true) {
-			
-			transmit("RS" + "You have successfully registered with the username " + username);
-			Debugger.record("A user has registered with the name " + username, debugMask);
+			if (createStatus == true) {
+
+				transmit("RS" + Parser.pack(username, ServerController.MAX_USERNAME_LENGTH) + "You have successfully registered with the username " + username);
+				Debugger.record("A user has registered with the name " + username, debugMask);
+				return true;
+			}
+		}
+		catch (Exception e)
+		{
+			Debugger.record("DB Connection failed to create user.", debugMask);
 		}
 
-		return createStatus;
-	
+		return false;
 	}
 	
 	public String login(HashMap<String, String> input) {
@@ -405,6 +470,40 @@ public class ServerThread implements Runnable
 	}
 
 	/**
+	 * Logs the user account out while leaving the client connected to the server.
+	 * @param input The hashmap containing the parsed message. Should contain a SessionID and UserID..
+	 * @return A boolean indicating if the logout was successful.
+	 */
+	public boolean logout(HashMap<String, String> input)
+	{
+		try {
+
+			// Remove the user from the logged in user map so no attempt is made to send them notifications.
+			if (this.user != null) {
+				ServerController.removeLoggedInUser(this.user);
+			}
+			// Remove the session from the servercontroller set so the ID can be reused.
+			if (this.sessionID != "NONE") {
+				ServerController.removeSession(this.sessionID);
+
+				transmit("LO" + Parser.pack(this.userID, ServerController.USER_ID_LENGTH) + this.sessionID + "You have logged out successfully.");
+
+				this.userID = 0;
+				this.username = "NONE";
+				this.user = null;
+				this.sessionID = "NONE";
+			}
+
+		}
+		catch (NullPointerException e) {
+
+			return false;
+		}
+		return true;
+
+	}
+
+	/**
 	 * Gets a random 256 bit string from the Cryptographer, checks it against the server session
 	 * list, and if it's not present assigns it to this login session and adds it to the server session map.
 	 *
@@ -453,20 +552,39 @@ public class ServerThread implements Runnable
 	}
 
 
-	
+	/**
+	 * This function processes all add friend requests sent by this user's client.
+	 * It takes two users, userOne and userTwo. UserOne should be the user that sent
+	 * the friend request. It first checks to see if a corresponding friend request from
+	 * userTwo to UserOne is in the database. If it is, it gets a DB connection and calls
+	 * database.addFriend, which creates all the database items necessary to have two users as
+	 * friends.
+	 *
+	 * If the corresponding pair does *not* exist, this function sends a friend request
+	 * to the second user.
+	 *
+	 * @param input A dictionary containing UserID and UserName keys, corresponding to
+	 *              userOne's ID and userTwo's ID.
+	 * @return A boolean indicating success or failure.
+	 */
 	public boolean addFriend(HashMap<String, String> input) {
 		
 		DatabaseConnection connection = DatabasePool.getConnection();
 
 		int userOneID = 0;
 		int userTwoID = 0;
+		String userOneIDstr;
+		String userTwoIDstr;
+
+		Debugger.record("addFriend function working", debugMask);
+
 		try
 		{
-			String userOne = input.get("UserID");
-			String userTwo = input.get("UserName");
+			userOneIDstr = input.get("UserID");
+			userTwoIDstr = input.get("UserName");
 
-			userOneID = Integer.parseInt(userOne);
-			userTwoID = Integer.parseInt(userTwo);
+			userOneID = Integer.parseInt(userOneIDstr);
+			userTwoID = Integer.parseInt(userTwoIDstr);
 		}
 		catch (Exception e)
 		{
@@ -478,17 +596,67 @@ public class ServerThread implements Runnable
 			return false;
 		}
 
+		// Get the username of the friend.
+		HashMap<String, String> friend = connection.getUser(userTwoID);
+
+		String friendName;
+		try {
+			friendName = friend.get("UserName");
+		}
+		catch (NullPointerException ex)
+		{
+			Debugger.record("ServerThread addFriend: Server tried to add a nonexistent friend or something.", debugMask + 1);
+			return false;
+		}
+
 		if (connection.checkFriendRequest(userTwoID, userOneID) == true) {
 
-			if (connection.addFriend(userOneID, userTwoID) && (connection.addFriend(userTwoID, userOneID)))
+
+
+			if (connection.addFriend(userOneID, userTwoID))
 			{
+				// Removes the old friend request.
+				connection.removeFriendRequest(userTwoID, userOneID);
+
 				HashMap<String, String> userMap= new HashMap<>();
 				userMap.put("UserID", input.get("UserID"));
+
+				HashMap<String, RegisteredUser> users = ServerController.getLoggedInUsers();
+
+
+				if (users.containsKey(userTwoIDstr))
+				{
+					RegisteredUser userTwo = users.get(userTwoIDstr);
+					userTwo.sendTransmission("AM" + this.username + " has accepted your friend request!");
+				}
+
 				connection.close();
-				return (pullFriends(userMap));
+
+				transmit("AM" + Parser.pack(this.userID, ServerController.USER_ID_LENGTH) + this.sessionID + "You are now friends with " + friendName + "!");
+
+				try {
+					Thread.sleep(20);
+				}
+				catch (InterruptedException e) {
+					Debugger.record("Attempt to sleep was interrupted.", debugMask);
+				}
+
+				// Causes this user's visible friends to update.
+				pullFriends(input);
+
+				try {
+					Thread.sleep(20);
+				}
+				catch (InterruptedException e) {
+					Debugger.record("Attempt to sleep was interrupted.", debugMask);
+				}
+
+				// Causes this user's visible requests to update to reflect the change.
+				pullFriendRequests(input);
 			}
 			else
 			{
+				Debugger.record("addFriend call to database returned false", debugMask + 1);
 				connection.close();
 				return false;
 			}
@@ -503,12 +671,15 @@ public class ServerThread implements Runnable
 				// Sends a friend request notification to the other user if they are logged in.
 				HashMap<String, RegisteredUser> loggedInUsers = ServerController.getLoggedInUsers();
 
+				transmit("AM" + Parser.pack(this.userID, ServerController.USER_ID_LENGTH) + this.sessionID + "A friend request has been sent to " + friendName + "!");
+
+
 				if (loggedInUsers.containsKey(userTwoID))
 				{
 					// Building the notification.
-					RegisteredUser friend = loggedInUsers.get(userTwoID);
-					String friendID = Parser.pack(friend.getUserIDstr(), 32);
-					String friendSessionID = friend.getSessionID();
+					RegisteredUser friendUser = loggedInUsers.get(userTwoID);
+					String friendID = Parser.pack(friendUser.getUserIDstr(), 32);
+					String friendSessionID = friendUser.getSessionID();
 
 					HashMap<String, String> trimmedSender = new HashMap<>();
 
@@ -517,7 +688,7 @@ public class ServerThread implements Runnable
 					Gson json = new Gson();
 					String senderJson = json.toJson(trimmedSender);
 
-					friend.sendTransmission("FR" + friendID + friendSessionID  + senderJson);
+					friendUser.sendTransmission("FR" + friendID + friendSessionID  + senderJson);
 				}
 			}
 			catch (Exception e)
@@ -527,6 +698,7 @@ public class ServerThread implements Runnable
 			connection.close();
 			return returnVal;
 		}
+		return false;
 	}
 
 	/**
@@ -540,6 +712,7 @@ public class ServerThread implements Runnable
 	{
 		DatabaseConnection connection = DatabasePool.getConnection();
 		boolean returnVal = false;
+
 		try
 		{
 			ArrayList<HashMap<String, String>> friendRequests = connection.pullFriendRequests(this.userID);
@@ -556,8 +729,33 @@ public class ServerThread implements Runnable
 
 		connection.close();
 		return returnVal;
+	}
 
+	public boolean removeFriendRequest(HashMap<String, String> input)
+	{
+		DatabaseConnection connection = DatabasePool.getConnection();
 
+		int userOneID = 0;
+		int userTwoID = 0;
+
+		try
+		{
+			String userOne = input.get("UserID");
+			String userTwo = input.get("UserName");
+
+			userOneID = Integer.parseInt(userOne);
+			userTwoID = Integer.parseInt(userTwo);
+		}
+		catch (Exception e)
+		{
+			Debugger.record("RemoveFriend function failed to parse provided userIDs: " + e.getMessage(), debugMask + 1);
+			connection.close();
+			return false;
+		}
+
+		boolean returnVal = (connection.removeFriendRequest(userOneID, userTwoID));
+		connection.close();
+		return returnVal;
 	}
 
 	public boolean removeFriend(HashMap<String, String> input)
@@ -593,63 +791,79 @@ public class ServerThread implements Runnable
 	 * @return A boolean indicating whether or not the operation was successful.
 	 */
 
-	public boolean searchUserName(HashMap<String, String> input)
-	{
+	public boolean searchUserName(HashMap<String, String> input) {
 		String searchString;
 
-		try
-		{
+		try {
 			searchString = input.get("UserName");
-		}
-		catch (Exception e)
-		{
+		} catch (Exception e) {
 			Debugger.record("Unable to get search string from input to search username function.", debugMask + 1);
 			return false;
 		}
+		if (searchString.length() > 2)
+		{
 
-		try {
-			DatabaseConnection connection = DatabasePool.getConnection();
+			try {
+				DatabaseConnection connection = DatabasePool.getConnection();
 
-			Debugger.record("Server thread requesting username search from database.", debugMask);
+				Debugger.record("Server thread requesting username search from database.", debugMask);
 
-			ArrayList<HashMap<String, String>> searchResults = connection.searchUserName(searchString);
+				ArrayList<HashMap<String, String>> searchResults = connection.searchUserName(searchString);
 
-			if (searchResults.size() > 0)
-			{
-				Gson json = new Gson();
+				if (searchResults.size() > 0) {
+					Gson json = new Gson();
 
-				ArrayList<HashMap<String, String>> trimmedResults = new ArrayList<>();
+					ArrayList<HashMap<String, String>> trimmedResults = new ArrayList<>();
 
-				for (int i = 0; i < searchResults.size(); i++)
-				{
-					HashMap<String, String> user = searchResults.get(i);
-					HashMap<String, String> trimmedUser = new HashMap<>();
-					user.put("UserID", user.get("UserID"));
-					user.put("UserName", user.get("UserName"));
-					trimmedResults.add(user);
+					for (int i = 0; i < searchResults.size(); i++) {
+						HashMap<String, String> user = searchResults.get(i);
+						HashMap<String, String> trimmedUser = new HashMap<>();
+						user.put("UserID", user.get("UserID"));
+						user.put("UserName", user.get("UserName"));
+						trimmedResults.add(user);
+					}
+
+					String searchResultsJson = json.toJson(trimmedResults);
+
+					String transmitMessage = "UR" + Parser.pack(userID, ServerController.USER_ID_LENGTH) + sessionID + searchResultsJson;
+
+					transmit(transmitMessage);
+
 				}
 
-				String searchResultsJson = json.toJson(trimmedResults);
+				connection.close();
 
-				String transmitMessage = "UR" + Parser.pack(userID, ServerController.USER_ID_LENGTH) + sessionID + searchResultsJson;
+				return true;
 
-				transmit(transmitMessage);
-
+			} catch (Exception e) {
+				Debugger.record("Search username failed for unknown reasons: " + e.getMessage(), debugMask + 1);
 			}
-
-			connection.close();
-
-			return true;
-
 		}
-		catch (Exception e)
-		{
-			Debugger.record("Search username failed for unknown reasons: " + e.getMessage(), debugMask + 1);
-		}
-
 		return false;
 	}
 
+	public boolean createChat(HashMap<String, String> input) {
+
+		String chatName;
+		int creatorID;
+		String creatorName;
+		try
+		{
+			creatorID = Integer.parseInt(input.get("UserID"));
+			creatorName = input.get("UserName");
+			chatName = input.get("Message");
+		}
+		catch (NullPointerException e)
+		{
+			Debugger.record("Message not found in input to create chat.", debugMask);
+			return false;
+		}
+
+		DatabaseConnection connection = DatabasePool.getConnection();
+
+		connection.createChat(chatName, creatorID, creatorName);
+		return true;
+	}
 
 	public boolean pullUserChatPairs(HashMap<String, String> input)
 	{
@@ -800,6 +1014,8 @@ public class ServerThread implements Runnable
 	 */
 	private void onExit() {
 
+		Debugger.record("Beginning server thread exit: " + getThreadID(), debugMask);
+
 		try {
 
 			// Remove the user from the logged in user map so no attempt is made to send them notifications.
@@ -828,7 +1044,6 @@ public class ServerThread implements Runnable
 			Debugger.record("ServerThread encountered error upon closing: " + e.getMessage(), debugMask + 1);
 		}
 
-        Debugger.record("Exiting server thread " + getThreadID(), debugMask);
         return;
 	}
 }

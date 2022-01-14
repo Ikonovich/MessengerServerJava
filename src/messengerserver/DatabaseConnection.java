@@ -26,6 +26,7 @@ public class DatabaseConnection
 	private PreparedStatement deleteUser;
 	private PreparedStatement pullFriends;
 	private PreparedStatement addFriendRequest;
+	private PreparedStatement removeFriendRequest;
 	private PreparedStatement checkFriendRequest;
 	private PreparedStatement pullFriendRequests;
 	private PreparedStatement addFriend;
@@ -51,12 +52,13 @@ public class DatabaseConnection
 	private static final String deleteUserQuery = "DELETE FROM RegisteredUsers WHERE UserID = ?";
 	private static final String pullFriendsQuery = "SELECT * FROM FriendPairs WHERE UserID = ?";
 	private static final String addFriendRequestQuery = "INSERT INTO FriendRequests(UserID, UserName, FriendUserID, FriendUserName) VALUES (?, ?, ?, ?)";
+	private static final String removeFriendRequestQuery = "DELETE FROM FriendRequests WHERE UserID = ? and FriendUserID = ?";
 	private static final String checkFriendRequestQuery = "SELECT * FROM FriendRequests WHERE UserID = ? AND FriendUserID = ?";
 	private static final String pullFriendRequestsQuery = "SELECT * FROM FriendRequests WHERE FriendUserID = ?";
 	private static final String addFriendQuery = "INSERT INTO FriendPairs (UserID, FriendUserID, FriendUserName, PrivateChatID) VALUES (?, ?, ?, ?)";
 	private static final String removeFriendQuery = "DELETE FROM FriendPairs WHERE UserID = ? AND FriendUserID = ?";
 	private static final String checkFriendQuery = "SELECT * FROM FriendPairs WHERE UserID = ? AND FriendUserID = ?";
-	private static final String createChatQuery = "INSERT INTO Chats (ChatID, OwnerID) VALUES (?, ?)";
+	private static final String createChatQuery = "INSERT INTO Chats (ChatID, ChatName, OwnerID, OwnerName) VALUES (?, ?, ?, ?)";
 	private static final String deleteChatQuery = "DELETE FROM Chats WHERE ChatID = ?";
 	private static final String checkChatIDQuery = "SELECT * FROM Chats WHERE ChatID = ?";
 	private static final String pullUserChatsQuery = "SELECT * FROM UserChatPairs WHERE UserID = ?";
@@ -98,6 +100,7 @@ public class DatabaseConnection
 			deleteUser = connection.prepareStatement(deleteUserQuery);
 			pullFriends = connection.prepareStatement(pullFriendsQuery);
 			addFriendRequest = connection.prepareStatement(addFriendRequestQuery);
+			removeFriendRequest = connection.prepareStatement(removeFriendRequestQuery);
 			checkFriendRequest = connection.prepareStatement(checkFriendRequestQuery);
 			pullFriendRequests = connection.prepareStatement(pullFriendRequestsQuery);
 			addFriend = connection.prepareStatement(addFriendQuery);
@@ -406,7 +409,7 @@ public class DatabaseConnection
 			}
 			catch (Exception e)
 			{
-				Debugger.record("Add friend query failed due to exception.", debugMask + 1);
+				Debugger.record("Add friend request query failed due to exception: " + e.getMessage(), debugMask + 1);
 				return false;
 			}
 
@@ -430,8 +433,39 @@ public class DatabaseConnection
 		}
 
 		return false;
-
 	}
+
+
+	/**
+	 * Delete a friend request from the database.
+	 * @param userID
+	 * @param friendUserID
+	 * @return
+	 */
+	public boolean removeFriendRequest(int userID, int friendUserID)
+	{
+
+		try
+		{
+			removeFriendRequest.setInt(1, userID);
+			removeFriendRequest.setInt(2, friendUserID);
+
+			removeFriendRequest.execute();
+
+			if (removeFriendRequest.getUpdateCount() > 0)
+			{
+				return true;
+			}
+		}
+		catch (SQLException e)
+		{
+			Debugger.record("Remove friend request query failed due to exception: " + e.getMessage(), debugMask + 1);
+		}
+		return false;
+	}
+
+
+
 
 	/**
 	 * This method looks for a single friend request in the database.
@@ -454,7 +488,7 @@ public class DatabaseConnection
 			checkFriendRequest.setInt(1, userID);
 			checkFriendRequest.setInt(2, friendUserID);
 		}
-		catch (Exception e)
+		catch (SQLException e)
 		{
 			Debugger.record("Could not set parameters for checkFriend query", debugMask + 1);
 			return false;
@@ -505,7 +539,7 @@ public class DatabaseConnection
 
 			friendRequests = parseResultSet(results);
 		}
-		catch (Exception e)
+		catch (SQLException e)
 		{
 			Debugger.record("Failed to pull friend requests in database connection: " + e.getMessage(), debugMask);
 		}
@@ -530,7 +564,7 @@ public class DatabaseConnection
 			checkFriend.setInt(1, userOneID);
 			checkFriend.setInt(2, userTwoID);
 		}
-		catch (Exception e)
+		catch (SQLException e)
 		{
 			Debugger.record("Could not set parameters for checkFriend query", debugMask + 1);
 			return false;
@@ -566,8 +600,8 @@ public class DatabaseConnection
 	}
 
 	/**
-	 * Creates two user-chat pairs identifying two users as friends, as well as
-	 * a private chat only accessible to them.
+	 * Creates two friend pairs identifying two users as friends, as well as
+	 * a private chat only accessible to them and the corresponding user-chat pairs.
 	 * @param userOneID The ID of the first user.
 	 * @param userTwoID The ID of the second user.
 	 * @return
@@ -593,7 +627,9 @@ public class DatabaseConnection
 				} while ((chatID == 0) || checkChatID(chatID) == true);
 
 				createChat.setInt(1, chatID);
-				createChat.setInt(2, userOneID);
+				createChat.setString(2, "Private Chat");
+				createChat.setInt(3, userOneID);
+				createChat.setString(4, "No Owner");
 				createChat.execute();
 
 				addFriend.setInt(1, userOneID);
@@ -609,11 +645,19 @@ public class DatabaseConnection
 				addFriend.setInt(4, chatID);
 				addFriend.execute();
 
+				addUserChatPair.setInt(1, userOneID);
+				addUserChatPair.setInt(2, chatID);
+				addUserChatPair.execute();
+
+				addUserChatPair.setInt(1, userTwoID);
+				addUserChatPair.setInt(2, chatID);
+				addUserChatPair.execute();
+
 				return true;
 			}
-			catch (Exception e)
+			catch (SQLException e)
 			{
-				Debugger.record("Add friend query failed due to exception.", debugMask + 1);
+				Debugger.record("Add friend query failed due to exception: " + e.getMessage(), debugMask + 1);
 				return false;
 			}
 		}
@@ -646,7 +690,7 @@ public class DatabaseConnection
 
 				return true;
 			}
-			catch (Exception e)
+			catch (SQLException e)
 			{
 				Debugger.record("Remove friend query failed due to exception.", debugMask + 1);
 				return false;
@@ -665,7 +709,7 @@ public class DatabaseConnection
 	 * @return An int indicating the ChatID of the new Chat. -1 if there is an error.
 	 */
 
-	public int createChat(int creatorID)
+	public int createChat(String chatName, int creatorID, String creatorName)
 	{
 
 		int chatID = 0;
@@ -677,7 +721,9 @@ public class DatabaseConnection
 			} while ((checkChatID(chatID) == true) || (chatID == 0));
 
 			createChat.setInt(1, chatID);
-			createChat.setInt(2, creatorID);
+			createChat.setString(2, chatName);
+			createChat.setInt(3, creatorID);
+			createChat.setString(4, creatorName);
 
 		}
 		catch(SQLException e) {
@@ -747,7 +793,7 @@ public class DatabaseConnection
 		{
 			checkChatID.setInt(1, chatID);
 		}
-		catch (Exception e)
+		catch (SQLException e)
 		{
 			Debugger.record("Could not set parameters for checkChatID query", debugMask + 1);
 			return false;
@@ -800,7 +846,7 @@ public class DatabaseConnection
 
 			subscribers = parseResultSet(results);
 		}
-		catch (Exception e)
+		catch (SQLException e)
 		{
 			Debugger.record("Failed to execute pullChatSubscribers query: " + e.getMessage(), debugMask);
 			return subscribers;
@@ -826,7 +872,7 @@ public class DatabaseConnection
 				addUserChatPair.setInt(1, userID);
 				addUserChatPair.setInt(2, chatID);
 			}
-			catch (Exception e)
+			catch (SQLException e)
 			{
 				Debugger.record("addUserChatPair query with parameters ChatID: " + chatID + " UserID: " + userID + " failed due to exception.", debugMask + 1);
 				return false;
@@ -868,7 +914,7 @@ public class DatabaseConnection
 			checkUserChatPair.setInt(1, chatID);
 			checkUserChatPair.setInt(2, userID);
 		}
-		catch (Exception e)
+		catch (SQLException e)
 		{
 			Debugger.record("Could not set parameters for checkUserChatPair query", debugMask + 1);
 			return false;
@@ -983,7 +1029,7 @@ public class DatabaseConnection
 			addMessage.setString(3, senderName);
 			addMessage.setString(4, message);
 		}
-		catch (Exception e)
+		catch (SQLException e)
 		{
 			Debugger.record("AddMessage query failed due to exception.", debugMask + 1);
 			return false;
@@ -1080,7 +1126,7 @@ public class DatabaseConnection
 				columns.add(metaData.getColumnName(i));
 			}
 		}
-		catch (Exception e) 
+		catch (Exception e)
 		{
 			Debugger.record("Error while getting result set column names.", debugMask + 1);
 			return resultsList;

@@ -1,6 +1,11 @@
 package messengerserver;
 
+import com.google.gson.Gson;
+import com.mysql.cj.Session;
+
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.HashMap;
 
 /**
  * This class stores the data associated with a Registered User that is currently logged in
@@ -69,26 +74,38 @@ public class RegisteredUser
     }
 
     /**
+     * Allows another server thread to induce this user to update its friends.
+     * @return A boolean indicating if the pull was successful.
+     */
+    public void pushFriends()
+    {
+       DatabaseConnection connection = DatabasePool.getConnection();
+
+       ArrayList<HashMap<String, String>> friends = connection.pullFriends(this.userID);
+
+       Gson json = new Gson();
+
+       String friendString = json.toJson(friends);
+
+       String transmitString = "FP" + Parser.pack(userID, ServerController.USER_ID_LENGTH) + this.sessionID + friendString;
+
+
+       sendTransmission(transmitString);
+    }
+
+    /**
      * Writes to the user's PrintWriter, effectively transmitting a message.
      * Synchronized to prevent garbage from being transmitted over the socket.
      *
      * @param message The message to be transmitted.
      * @return A boolean indicating if the transmission was successful.
      */
-    public synchronized boolean sendTransmission(String message)
+    public synchronized void sendTransmission(String message)
     {
         Debugger.record("A message is being transmitted via the RegisteredUser class: " + message + "\n", debugMask);
-        try
-        {
-            writer.print(message);
-            writer.flush();
-        }
-        catch (Exception e)
-        {
-            Debugger.record("RegisteredUser class failed to transmit message: " + e.getMessage(), debugMask + 1);
-            return false;
-        }
-        return true;
+
+        ServerThread.transmit(message, writer);
+
     }
 
 }
