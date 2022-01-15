@@ -1,0 +1,10 @@
+version: 0.0
+os: linux
+files:
+	- source: /
+	destination: /var/server
+		hooks:
+	ApplicationStart:
+	- location: bin/messengerserver/Server.class
+	timeout: 300
+	runas: root
