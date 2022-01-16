@@ -1,3 +1,3 @@
 #This script initiates the server.
 
-java bin/messengerserver/Java
+java bin/messengerserver/Server
