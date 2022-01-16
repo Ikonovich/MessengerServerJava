@@ -1,4 +1,4 @@
 #This script initiates the server.
 
-ls
+ls messengerserver
 java messengerserver.Server
