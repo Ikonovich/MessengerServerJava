@@ -13,6 +13,6 @@ permissions:
 
 hooks:
   ApplicationStart:
-    - location: bin/messengerserver/server_start.sh
+    - location: bin/server_start.sh
       timeout: 300
       runas: root
