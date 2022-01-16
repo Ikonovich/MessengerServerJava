@@ -13,6 +13,6 @@ permissions:
 
 hooks:
   ApplicationStart:
-    - location: server_start.sh
+    - location: messengerserver/bin/server_start.sh
       timeout: 300
       runas: root
