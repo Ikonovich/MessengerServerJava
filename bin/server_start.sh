@@ -1,4 +1,4 @@
 #This script initiates the server.
 
-echo "HelloWorld"
+ls
 java messengerserver.Server
