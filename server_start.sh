@@ -1,4 +1,4 @@
 #This script initiates the server.
 
-ls var
-java messengerserver.Server
+ls var/server/messengerserver
+java var/server/messengerserver/Server
