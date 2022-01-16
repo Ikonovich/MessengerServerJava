@@ -3,7 +3,7 @@ os: linux
 
 files:
   - source: /
-destination: /var/server
+    destination: /var/server
 
 permissions:
   - object: /
@@ -13,6 +13,6 @@ permissions:
 
 hooks:
   ApplicationStart:
-  - location: bin/messengerserver/Server.class
-  timeout: 300
-  runas: ec2-user
+    - location: bin/messengerserver/Server.class
+      timeout: 300
+      runas: ec2-user
