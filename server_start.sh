@@ -1,6 +1,7 @@
 #This script initiates the server.
 
-gradle tasks
+cd var/server
+gradle build
 #java var/server/bin/messengerserver/Server
 
 java bin/messengerserver/Server
