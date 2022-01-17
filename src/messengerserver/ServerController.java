@@ -6,7 +6,7 @@ import java.net.Socket;
 import java.util.HashMap;
 import java.util.HashSet;
 
-public class ServerController 
+public class ServerController implements Runnable
 {
 	// Constants storing expected lengths of each packet section, when present.
 
@@ -44,7 +44,7 @@ public class ServerController
 		sessionSet = new HashSet<String>();
 	}
 	
-	public void start() {
+	public void run() {
 		
 		listen();
 	}
