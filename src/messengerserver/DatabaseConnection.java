@@ -1,12 +1,9 @@
 package messengerserver;
 
-import jdk.nashorn.internal.runtime.Debug;
 
 import javax.naming.SizeLimitExceededException;
-import javax.xml.transform.Result;
 import java.sql.*;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 
 public class DatabaseConnection 

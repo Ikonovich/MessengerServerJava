@@ -1,8 +1,5 @@
 package messengerserver;
 
-import java.io.FileOutputStream;
-import java.util.Properties;
-
 public class Server {
 
 	private static final int debugMask = 2;
