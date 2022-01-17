@@ -1,4 +1,4 @@
 #This script initiates the server.
 
-gradle build.gradle
+gradle build
 java var/server/bin/messengerserver/Server
