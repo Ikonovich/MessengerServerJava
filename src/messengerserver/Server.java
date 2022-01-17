@@ -13,5 +13,7 @@ public class Server {
 
 		ServerController serverController = new ServerController();
 		new Thread(serverController).start();
+
+		return;
 	}
 }
