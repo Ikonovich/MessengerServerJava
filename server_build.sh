@@ -9,6 +9,6 @@ cd var/server
 gradle build
 
 sudo systemctl daemon-reload
-sudo systemctl enable your-application.service
-sudo systemctl start your-application
-sudo systemctl status your-application -l
+sudo systemctl enable MessengerServer.service
+sudo systemctl start MessengerServer
+sudo systemctl status MessengerServer -l
