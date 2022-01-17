@@ -7,6 +7,6 @@ export PATH=${JAVA_HOME}/lib:${PATH}
 
 cd var/server
 gradle build
-java build/classes/java/main/messengerserver
+java build/classes/java/main/messengerserver/Server
 
 #java bin/messengerserver/Server
