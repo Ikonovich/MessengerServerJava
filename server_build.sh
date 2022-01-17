@@ -5,7 +5,8 @@ export PATH=${GRADLE_HOME}/bin:${PATH}
 
 export PATH=${JAVA_HOME}/lib:${PATH}
 
-export CLASSPATH=/var/server/mysql-connector-java-8.0.27.jar:$CLASSPATH
+export JDBC_HOME=/var/server/mysql-connector-java-8.0.27.jar
+export PATH=${JDBC_HOME}:${PATH}
 
 cd var/server
 gradle build
