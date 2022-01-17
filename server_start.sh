@@ -1,5 +1,6 @@
 #This script initiates the server.
 
 ls var/server
-sudo ./var/server/gradlew build
+chmod +x /var/server/gradlew
+./var/server/gradlew build
 java var/server/bin/messengerserver/Server
