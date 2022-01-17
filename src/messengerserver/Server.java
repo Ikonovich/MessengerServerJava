@@ -9,11 +9,11 @@ public class Server {
 	{
 		System.out.println("Testing.");
 
-//		System.out.println("Starting server.");
+		System.out.println("Starting server.");
 
-//		ServerController serverController = new ServerController();
-//		serverController.start();
-//
+		ServerController serverController = new ServerController();
+		serverController.start();
+
 		Properties props = new Properties();
 		props.setProperty("Port", "3000");
 		props.setProperty("Minimum Username Length", "32");

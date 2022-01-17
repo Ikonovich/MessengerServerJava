@@ -1,6 +1,4 @@
 package messengerserver;
-import com.google.protobuf.Message;
-import com.sun.webkit.perf.WCMessageDigestPerfLogger;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
