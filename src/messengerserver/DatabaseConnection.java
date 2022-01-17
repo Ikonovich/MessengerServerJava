@@ -86,7 +86,8 @@ public class DatabaseConnection
 		} 
 		catch (Exception e) 
 		{
-			Debugger.record("Database connection failed: " + Arrays.toString(e.getStackTrace()), 3);
+			Debugger.record("Database connection failed: " + e.getMessage(), 3);
+			return;
 		}
 		
 		

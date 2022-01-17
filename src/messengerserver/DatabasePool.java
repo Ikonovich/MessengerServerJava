@@ -9,9 +9,9 @@ public class DatabasePool {
 	
 	final static int MAX_CONNECTIONS = 10;
 	
-	private static final String DB_URL = "jdbc:mysql://localhost:3306/messenger_database";
-	private static final String USER = "root";
-	private static final String PASS = "giga321";
+	private static final String DB_URL = "jdbc:mysql://messengerdatabase.c3lysthyomqo.us-east-2.rds.amazonaws.com:3306/messenger_database";
+	private static final String USER = "admin";
+	private static final String PASS = "blueberry3530";
 	
 			
 	public static synchronized DatabaseConnection getConnection() 
