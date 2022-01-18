@@ -17,7 +17,7 @@ sourceSets {
 }
 dependencies {
     implementation 'junit:junit:4.12'
-    compile "mysql:mysql-connector-java:5.1.46"
+    implementation "mysql:mysql-connector-java:8.0.15"
     implementation 'org.junit.jupiter:junit-jupiter:5.7.0'
     // https://mvnrepository.com/artifact/com.google.code.gson/gson
     //Below is equivalent to: implementation group: 'com.google.code.gson', name: 'gson', version: '2.7'
