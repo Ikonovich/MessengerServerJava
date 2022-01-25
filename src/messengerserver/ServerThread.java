@@ -1,24 +1,23 @@
 package messengerserver;
 
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
-import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import com.google.gson.Gson;
+import com.google.gson.JsonSyntaxException;
+
+import javax.xml.crypto.Data;
 
 public class ServerThread implements Runnable 
 {
 
-
+	private static final int debugMask = 4; // Indicates the bit mask for Debugger usage. +1 the debugMask to indicate an error message.
 	
-	private static int debugMask = 4; // Indicates the bit mask for Debugger usage. +1 the debugMask to indicate an error message.
-	
-	private Socket socket;
+	private final Socket socket;
 
 	private PrintWriter writer;
 	private BufferedReader reader;
@@ -60,9 +59,6 @@ public class ServerThread implements Runnable
         return Thread.currentThread().getId();
     }
 
-	private boolean isAlive() {
-		return (System.currentTimeMillis() - lastReadTime) < ServerController.MAX_TIMEOUT;
-	}
 
 	private void sendHeartbeat()
 	{
@@ -71,7 +67,7 @@ public class ServerThread implements Runnable
 	
 	private void listen() 
 	{
-		String input = "";
+		String input;
 		
 		try 
 		{
@@ -106,18 +102,6 @@ public class ServerThread implements Runnable
 
 					handleMessage(input);
 				}
-
-//				try
-//				{
-//					writer.write(0);
-//				}
-//				catch (Exception e)
-//				{
-//					connected = false;
-//					onExit();
-//					return;
-//				}
-
 			}
 		}
 		catch(Exception e) 
@@ -156,7 +140,7 @@ public class ServerThread implements Runnable
 				transmitMessage = transmitMessage.substring(interval);
 				try
 				{
-					Thread.sleep(100);
+					Thread.sleep(3);
 				}
 				catch (Exception e)
 				{
@@ -236,13 +220,11 @@ public class ServerThread implements Runnable
 	}
 
 
-
-	public String getLastTransmission()
-	{
-		return lastTransmission;
-	}
-
-
+	/**
+	 * This message takes a message received by the socket, sends it to be parsed,
+	 * and then uses the result of the parse to direct it to the appropriate handling method.
+	 * @param message The message received on the socket.
+	 */
 
 	private void handleMessage(String message) {
 		
@@ -277,6 +259,9 @@ public class ServerThread implements Runnable
 				case "AF":
 					addFriend(inputMap);
 					return;
+				case "RF":
+					removeFriend(inputMap);
+					return;
 				case "PR":
 					pullFriendRequests(inputMap);
 					return;
@@ -289,11 +274,19 @@ public class ServerThread implements Runnable
 				case "CC":
 					createChat(inputMap);
 					return;
+				case "MP":
+					modifyPermissions(inputMap);
 				case "PM":
 					pullMessages(inputMap);
 					return;
 				case "SM":
 					sendMessage(inputMap);
+					return;
+				case "EM":
+					editMessage(inputMap);
+					return;
+				case "DM":
+					deleteMessage(inputMap);
 					return;
 				case "HB":
 					// Heartbeat - Do nothing/
@@ -352,15 +345,32 @@ public class ServerThread implements Runnable
 			String username = input.get("UserName");
 			String password = input.get("Password");
 
+			if (checkUsernameSyntax(username) == false)
+			{
+				transmit("RU" + Parser.pack(username, ServerController.MAX_USERNAME_LENGTH) + "The provided " +
+						 "username must be between 8 and 32 characters in length, and may contain only " +
+						"alphanumeric characters and dashes.");
 
+				return false;
+			}
+
+			if (checkPasswordSyntax(password) == false)
+			{
+				transmit("RU" + Parser.pack(username, ServerController.MAX_USERNAME_LENGTH) + "The provided " +
+						"password must be between 8 and 128 characters in length.");
+				return false;
+			}
 			DatabaseConnection connection = DatabasePool.getConnection();
 
 			HashMap<String, String> userResults = connection.getUser(username);
 
 			if (userResults.containsKey("UserName")) {
 				// A user with this name was found in the database.
-				transmit("RU" + Parser.pack(username, ServerController.MAX_USERNAME_LENGTH) + "The name you are trying to register is already taken.");
-				Debugger.record("A user attempted to register the name " + username + ", but was rejected because it is taken.", debugMask + 1);
+				transmit("RU" + Parser.pack(username, ServerController.MAX_USERNAME_LENGTH) + "The name you are " +
+						"trying to register is already taken.");
+
+				Debugger.record("A user attempted to register the name " + username + ", but was " +
+						"rejected because it is taken.", debugMask + 1);
 				connection.close();
 				return false;
 			}
@@ -374,7 +384,9 @@ public class ServerThread implements Runnable
 
 			if (createStatus == true) {
 
-				transmit("RS" + Parser.pack(username, ServerController.MAX_USERNAME_LENGTH) + "You have successfully registered with the username " + username);
+				transmit("RS" + Parser.pack(username, ServerController.MAX_USERNAME_LENGTH) + "You have " +
+						"successfully registered with the username " + username);
+
 				Debugger.record("A user has registered with the name " + username, debugMask);
 				return true;
 			}
@@ -394,7 +406,8 @@ public class ServerThread implements Runnable
 		
 		if (input.containsKey("UserName") == false) {
 			Debugger.record("UserName field not present in login input.", debugMask + 1);
-			transmitMessage = "LU" + "An undefined error has occurred while logging in. Please contact the system administrator.";
+			transmitMessage = "LU" + "An undefined error has occurred while logging in. Please contact the " +
+					"system administrator.";
 			return transmitMessage;
 		}
 		
@@ -512,10 +525,10 @@ public class ServerThread implements Runnable
 
 	private boolean createSession()
 	{
-		String newSessionID = "";
+		String newSessionID;
 		do
 		{
-			newSessionID = Cryptographer.generateRandomString(32);
+			newSessionID = Cryptographer.generateRandomString(ServerController.SESSION_ID_LENGTH);
 		} while (ServerController.addSession(newSessionID) == false);
 
 		sessionID = newSessionID;
@@ -610,24 +623,20 @@ public class ServerThread implements Runnable
 		}
 
 		if (connection.checkFriendRequest(userTwoID, userOneID) == true) {
-
-
-
-			if (connection.addFriend(userOneID, userTwoID))
-			{
+			if (connection.addFriend(userOneID, userTwoID)) {
 				// Removes the old friend request.
 				connection.removeFriendRequest(userTwoID, userOneID);
 
-				HashMap<String, String> userMap= new HashMap<>();
+				HashMap<String, String> userMap = new HashMap<>();
 				userMap.put("UserID", input.get("UserID"));
 
 				HashMap<String, RegisteredUser> users = ServerController.getLoggedInUsers();
 
 
-				if (users.containsKey(userTwoIDstr))
-				{
+				if (users.containsKey(userTwoIDstr)) {
 					RegisteredUser userTwo = users.get(userTwoIDstr);
-					userTwo.sendTransmission("AM" + this.username + " has accepted your friend request!");
+					userTwo.sendTransmission("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + this.username + " has accepted your friend request!");
+					userTwo.pushFriends();
 				}
 
 				connection.close();
@@ -636,8 +645,7 @@ public class ServerThread implements Runnable
 
 				try {
 					Thread.sleep(20);
-				}
-				catch (InterruptedException e) {
+				} catch (InterruptedException e) {
 					Debugger.record("Attempt to sleep was interrupted.", debugMask);
 				}
 
@@ -646,16 +654,13 @@ public class ServerThread implements Runnable
 
 				try {
 					Thread.sleep(20);
-				}
-				catch (InterruptedException e) {
+				} catch (InterruptedException e) {
 					Debugger.record("Attempt to sleep was interrupted.", debugMask);
 				}
 
 				// Causes this user's visible requests to update to reflect the change.
 				pullFriendRequests(input);
-			}
-			else
-			{
+			} else {
 				Debugger.record("addFriend call to database returned false", debugMask + 1);
 				connection.close();
 				return false;
@@ -674,10 +679,10 @@ public class ServerThread implements Runnable
 				transmit("AM" + Parser.pack(this.userID, ServerController.USER_ID_LENGTH) + this.sessionID + "A friend request has been sent to " + friendName + "!");
 
 
-				if (loggedInUsers.containsKey(userTwoID))
+				if (loggedInUsers.containsKey(userTwoIDstr))
 				{
 					// Building the notification.
-					RegisteredUser friendUser = loggedInUsers.get(userTwoID);
+					RegisteredUser friendUser = loggedInUsers.get(userTwoIDstr);
 					String friendID = Parser.pack(friendUser.getUserIDstr(), 32);
 					String friendSessionID = friendUser.getSessionID();
 
@@ -685,8 +690,12 @@ public class ServerThread implements Runnable
 
 					trimmedSender.put("UserID", String.valueOf(this.userID));
 					trimmedSender.put("UserName", this.username);
+
+					ArrayList<HashMap<String, String>> senderList = new ArrayList<>();
+					senderList.add(trimmedSender);
+
 					Gson json = new Gson();
-					String senderJson = json.toJson(trimmedSender);
+					String senderJson = json.toJson(senderList);
 
 					friendUser.sendTransmission("FR" + friendID + friendSessionID  + senderJson);
 				}
@@ -782,13 +791,18 @@ public class ServerThread implements Runnable
 
 		boolean returnVal = (connection.removeFriend(userOneID, userTwoID) && (connection.removeFriend(userTwoID, userOneID)));
 		connection.close();
+
+		if (returnVal == true) {
+			transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "Friend removed successfully.");
+			pullFriends(input);
+		}
 		return returnVal;
 	}
 
 	/**
 	 * Calls the searchUserName function in DatabaseConnection and transmits the results, if any.
 	 * @param input The parsed transmission from the client.
-	 * @return A boolean indicating whether or not the operation was successful.
+	 * @return A boolean indicating if the operation was successful.
 	 */
 
 	public boolean searchUserName(HashMap<String, String> input) {
@@ -842,6 +856,12 @@ public class ServerThread implements Runnable
 		return false;
 	}
 
+	/**
+	 * Creates a single new chat with the parameters provided in the input.
+	 * @param input The parsed transmission from the client.
+	 * @return A boolean indicating if the operation was successful.
+	 */
+
 	public boolean createChat(HashMap<String, String> input) {
 
 		String chatName;
@@ -864,6 +884,238 @@ public class ServerThread implements Runnable
 		connection.createChat(chatName, creatorID, creatorName);
 		return true;
 	}
+
+
+	 /**
+	 * Takes a message component containing a dictionary containing "Command" and "UserID" components.
+	 * Checks if the sending user has permissions to run the command. If so, the command is applied.
+	 * @param input The parsed transmission from the client.
+	 * @return A boolean indicating if the operation was successful.
+	 */
+	public boolean modifyPermissions(HashMap<String, String> input)
+	{
+		int userID;
+		int commandedUserID;
+		int chatID;
+		HashMap<String, String> commandDict;
+		String command;
+
+		try
+		{
+			userID = Integer.parseInt(input.get("UserID"));
+			chatID = Integer.parseInt(input.get("ChatID"));
+
+			String commandJson = input.get("Message");
+
+			Gson gson = new Gson();
+
+			commandDict = gson.fromJson(commandJson, HashMap.class);
+
+			commandedUserID = Integer.parseInt(commandDict.get("UserID"));
+			command = commandDict.get("Command");
+		}
+		catch (NumberFormatException e) {
+			Debugger.record("Provided ID for chatCommand was invalid: " + e.getMessage(), debugMask);
+			return false;
+		}
+		catch (NullPointerException e)
+		{
+			Debugger.record("chatCommand input doesn't contain appropriate entries: " + e.getMessage(), debugMask);
+			return false;
+		}
+		catch (JsonSyntaxException e)
+		{
+			Debugger.record("chatCommand input message can't be parsed to Json: " + e.getMessage(), debugMask);
+			return false;
+		}
+
+		DatabaseConnection connection = DatabasePool.getConnection();
+
+		HashMap<String, String> userPair = connection.pullSingleUserChatPair(chatID, userID);
+		HashMap<String, String> commandedUserPair = connection.pullSingleUserChatPair(chatID, commandedUserID);
+
+		int userPermissions;
+		int commandedUserPermissions;
+
+		try
+		{
+			userPermissions = Integer.parseInt(userPair.get("Permissions"));
+			commandedUserPermissions = Integer.parseInt(userPair.get("Permissions"));
+		}
+		catch (NullPointerException e)
+		{
+			Debugger.record("User pair dictionaries did not contain permissions.", debugMask);
+			return false;
+		}
+		catch (NumberFormatException e)
+		{
+			Debugger.record("User pair dictionaries contained invalid permissions: " + e.getMessage(), debugMask);
+			return false;
+		}
+
+		if (commandedUserPermissions >= userPermissions)
+		{
+			transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+			return false;
+		}
+
+		int permissionAdjustment = 0;
+		switch (command)
+		{
+			case "RestrictUploading":
+				if ((userPermissions & Permissions.RESTRICT) == Permissions.RESTRICT)
+				{
+					permissionAdjustment = -Permissions.UPLOAD;
+				}
+				else
+				{
+					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					return false;
+				}
+				break;
+			case "AllowUploading":
+				if ((userPermissions & Permissions.RESTRICT) == Permissions.RESTRICT)
+				{
+					permissionAdjustment = Permissions.UPLOAD;
+				}
+				else
+				{
+					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					return false;
+				}
+				break;
+			case "Mute":
+				if ((userPermissions & Permissions.MUTE) == Permissions.MUTE)
+				{
+					permissionAdjustment = -Permissions.TALK;
+				}
+				else
+				{
+					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					return false;
+				}
+				break;
+			case "Unmute":
+				if ((userPermissions & Permissions.MUTE) == Permissions.MUTE)
+				{
+					permissionAdjustment = Permissions.TALK;
+				}
+				else
+				{
+					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					return false;
+				}
+				break;
+			case "Ban":
+				if ((userPermissions & Permissions.BAN) == Permissions.BAN)
+				{
+					permissionAdjustment = -(Permissions.READ & Permissions.TALK);
+				}
+				else
+				{
+					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					return false;
+				}
+				break;
+			case "Unban":
+				if ((userPermissions & Permissions.BAN) == Permissions.BAN)
+				{
+					permissionAdjustment = Permissions.READ & Permissions.TALK;
+				}
+				else
+				{
+					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					return false;
+				}
+				break;
+			case "AllowRestrict":
+				if ((userPermissions & Permissions.OWNER) == Permissions.OWNER)
+				{
+					permissionAdjustment = Permissions.RESTRICT;
+				}
+				else
+				{
+					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					return false;
+				}
+				break;
+			case "DisallowRestrict":
+				if ((userPermissions & Permissions.OWNER) == Permissions.OWNER)
+				{
+					permissionAdjustment = -Permissions.RESTRICT;
+				}
+				else
+				{
+					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					return false;
+				}
+				break;
+			case "AllowMute":
+				if ((userPermissions & Permissions.OWNER) == Permissions.OWNER)
+				{
+					permissionAdjustment = Permissions.MUTE;
+				}
+				else
+				{
+					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					return false;
+				}
+				break;
+			case "DisallowMute":
+				if ((userPermissions & Permissions.OWNER) == Permissions.OWNER)
+				{
+					permissionAdjustment = -Permissions.MUTE;
+				}
+				else
+				{
+					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					return false;
+				}
+				break;
+			case "AllowBan":
+				if ((userPermissions & Permissions.OWNER) == Permissions.OWNER)
+				{
+					permissionAdjustment = Permissions.BAN;
+				}
+				else
+				{
+					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					return false;
+				}
+				break;
+			case "DisallowBan":
+				if ((userPermissions & Permissions.OWNER) == Permissions.OWNER)
+				{
+					permissionAdjustment = -Permissions.BAN;
+				}
+				else
+				{
+					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					return false;
+				}
+				break;
+		}
+		int permissions = commandedUserPermissions + permissionAdjustment;
+		boolean returnVal = connection.updatePermissions(userID, commandedUserID, chatID, permissions);
+
+
+		if (returnVal == true)
+		{
+			connection.addMessage(chatID, 0, "Controller", "Command " + command + " has been applied to user " + commandedUserID);
+		}
+		else
+		{
+			connection.addMessage(chatID, 0, "Controller", "Command " + command + " has failed.");
+		}
+
+		return returnVal;
+	}
+
+	/**
+	 * Pulls all of the chat pairs for a single user from the database and transmits them.
+	 * @param input The parsed transmission from the client.
+	 * @return A boolean indicating if the operation was successful.
+	 */
 
 	public boolean pullUserChatPairs(HashMap<String, String> input)
 	{
@@ -923,7 +1175,9 @@ public class ServerThread implements Runnable
 			}
 			else
 			{
-				Debugger.record("Message push called but found no results to send.", debugMask);
+				String transmitMessage = "MP" + Parser.pack(userID, ServerController.USER_ID_LENGTH) + sessionID + Parser.pack(chatID, ServerController.CHAT_ID_LENGTH);
+				transmit(transmitMessage);
+				Debugger.record("Message push called but sent 0 result response.", debugMask);
 			}
 			connection.close();
 			return true;
@@ -968,16 +1222,112 @@ public class ServerThread implements Runnable
 		if (connection.addMessage(chatID, userID, username, message) == true)
 		{
 			Debugger.record("Server thread added message successfully, spinning up notification thread.", debugMask);
-			NotificationThread notifier = new NotificationThread(chatID);
 
-			new Thread(notifier).start();
-
+			notifyChatUpdate(chatID);
 			connection.close();
 			return true;
 		}
 		connection.close();
 		return false;
 	}
+
+	public boolean editMessage(HashMap<String, String> input)
+	{
+		try {
+			int userID = Integer.parseInt(input.get("UserID"));
+			int messageID = Integer.parseInt(input.get("MessageID"));
+			String messageBody = input.get("Message");
+
+			DatabaseConnection connection = DatabasePool.getConnection();
+
+			HashMap<String, String> message = connection.pullMessage(messageID);
+			int senderID = Integer.parseInt(message.get("SenderID"));
+			int chatID = Integer.parseInt(message.get("ChatID"));
+
+			if (senderID == userID) {
+
+				if (connection.editMessage(messageID, messageBody)) {
+					notifyChatUpdate(chatID);
+				}
+			} else {
+				HashMap<String, String> userPair = connection.pullSingleUserChatPair(chatID, userID);
+				int permissions = Integer.parseInt(userPair.get("Permissions"));
+
+				if ((permissions & Permissions.DELETE) == Permissions.DELETE) {
+
+					if (connection.deleteMessage(messageID)) {
+						notifyChatUpdate(chatID);
+					}
+				}
+			}
+		}
+		catch (NullPointerException e)
+		{
+			Debugger.record("Expected items missing from input to delete message: " + e.getMessage(), debugMask);
+			return false;
+		}
+		catch (NumberFormatException e)
+		{
+			Debugger.record("Expected items missing from input to delete message: " + e.getMessage(), debugMask);
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Checks to see if the sending user has permissions
+	 * to delete a single message from the chat. If so, deletes the message,
+	 * and then spins up a thread to notify all users subscribed to that chat.
+	 *
+	 * @param input A dictionary containing the input received from the parser.
+	 * @return A boolean indicating if a message has been successfully deleted.
+	 */
+
+	public boolean deleteMessage(HashMap<String, String> input)
+	{
+		try
+		{
+			int userID = Integer.parseInt(input.get("UserID"));
+			int messageID = Integer.parseInt(input.get("MessageID"));
+
+			DatabaseConnection connection = DatabasePool.getConnection();
+
+			HashMap<String, String> message = connection.pullMessage(messageID);
+			int senderID = Integer.parseInt(message.get("SenderID"));
+			int chatID = Integer.parseInt(message.get("ChatID"));
+
+			if (senderID == userID) {
+
+				if (connection.deleteMessage(messageID)) {
+					notifyChatUpdate(chatID);
+				}
+			}
+			else
+			{
+				HashMap<String, String> userPair = connection.pullSingleUserChatPair(chatID, userID);
+				int permissions = Integer.parseInt(userPair.get("Permissions"));
+
+				if ((permissions & Permissions.DELETE) == Permissions.DELETE) {
+
+					if (connection.deleteMessage(messageID)) {
+						notifyChatUpdate(chatID);
+					}
+				}
+			}
+		}
+		catch (NullPointerException e)
+		{
+			Debugger.record("Expected items missing from input to delete message: " + e.getMessage(), debugMask);
+			return false;
+		}
+		catch (NumberFormatException e)
+		{
+			Debugger.record("Expected items missing from input to delete message: " + e.getMessage(), debugMask);
+			return false;
+		}
+		return true;
+	}
+
 
 	/**
 	 * Verifies that a username a user is registering with meets the registration requirements.
@@ -996,46 +1346,68 @@ public class ServerThread implements Runnable
 
 		return true;
 	}
-	
-	public boolean checkPasswordSyntax(String password) {
+
+	/**
+	 * Used to ensure that passwords meet the syntax requirements.
+	 * @param password The password string to check.
+	 * @return A boolean indicating success or failure.
+	 */
+	public boolean checkPasswordSyntax(String password)
+	{
 		
-		if (password.length() < ServerController.MIN_PASSWORD_LENGTH) {
+		if (password.length() < ServerController.MIN_PASSWORD_LENGTH)
+		{
 			return false;
 		}
-		if (password.length() > ServerController.MAX_PASSWORD_LENGTH) {
+		if (password.length() > ServerController.MAX_PASSWORD_LENGTH)
+		{
 			return false;
 		}
-		
+
 		return true;
+	}
+
+	public void notifyChatUpdate(int chatID)
+	{
+		NotificationThread notifier = new NotificationThread(chatID);
+
+		new Thread(notifier).start();
 	}
 
 	/**
 	 * Handles clean up before the server thread exits.
 	 */
-	private void onExit() {
+	private void onExit()
+	{
 
 		Debugger.record("Beginning server thread exit: " + getThreadID(), debugMask);
 
-		try {
+		try
+		{
 
 			// Remove the user from the logged in user map so no attempt is made to send them notifications.
-			if (user != null) {
+			if (user != null)
+			{
 				ServerController.removeLoggedInUser(user);
 			}
 			// Remove the session from the servercontroller set so the ID can be reused.
-			if (sessionID != "NONE") {
+			if (sessionID != "NONE")
+			{
 				ServerController.removeSession(sessionID);
 			}
 			// Close the print writer for the socket.
-			if (writer != null) {
+			if (writer != null)
+			{
 				writer.close();
 			}
 			// Close the reader for the socket.
-			if (reader != null) {
+			if (reader != null)
+			{
 				reader.close();
 			}
 			// Finally, close the socket itself.
-			if (socket != null) {
+			if (socket != null)
+			{
 				socket.close();
 			}
 		}

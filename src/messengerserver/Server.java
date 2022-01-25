@@ -1,5 +1,9 @@
 package messengerserver;
 
+/**
+ * Defines the available user permissions for a specific chat.
+ */
+
 public class Server {
 
 	private static final int debugMask = 2;

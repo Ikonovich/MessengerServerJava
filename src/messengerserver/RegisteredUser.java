@@ -103,6 +103,7 @@ public class RegisteredUser
     public synchronized void sendTransmission(String message)
     {
         Debugger.record("A message is being transmitted via the RegisteredUser class: " + message + "\n", debugMask);
+        System.out.println("A message is being transmitted via the RegisteredUser class: " + message + "\n");
 
         ServerThread.transmit(message, writer);
 

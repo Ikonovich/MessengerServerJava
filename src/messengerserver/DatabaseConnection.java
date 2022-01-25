@@ -2,6 +2,7 @@ package messengerserver;
 
 
 import javax.naming.SizeLimitExceededException;
+import javax.swing.plaf.basic.BasicScrollPaneUI;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -9,7 +10,6 @@ import java.util.HashMap;
 public class DatabaseConnection 
 {
 
-	
 	private boolean isOccupied = false;
 	private final int debugMask = 2;
 
@@ -33,11 +33,13 @@ public class DatabaseConnection
 	private PreparedStatement deleteChat;
 	private PreparedStatement checkChatID;
 	private PreparedStatement addUserChatPair;
-	private PreparedStatement checkUserChatPair;
+	private PreparedStatement pullSingleUserChatPair;
 	private PreparedStatement pullUserChats;
 	private PreparedStatement pullChatSubscribers;
 	private PreparedStatement addMessage;
+	private PreparedStatement editMessage;
 	private PreparedStatement deleteMessage;
+	private PreparedStatement pullMessage;
 	private PreparedStatement pullMessagesFromChat;
 
 
@@ -60,10 +62,12 @@ public class DatabaseConnection
 	private static final String checkChatIDQuery = "SELECT * FROM Chats WHERE ChatID = ?";
 	private static final String pullUserChatsQuery = "SELECT * FROM UserChatPairs WHERE UserID = ?";
 	private static final String pullChatSubscribersQuery = "SELECT * FROM UserChatPairs WHERE ChatID = ?";
-	private static final String addUserChatPairQuery = "INSERT INTO UserChatPairs(UserID, ChatID) VALUES (?, ?)";
-	private static final String checkUserChatPairQuery = "SELECT * FROM UserChatPairs WHERE ChatID = ? AND UserID = ?";
+	private static final String addUserChatPairQuery = "INSERT INTO UserChatPairs(UserID, ChatID, Permissions, IsMember) VALUES (?, ?, ?, ?)";
+	private static final String pullSingleUserChatPairQuery = "SELECT * FROM UserChatPairs WHERE ChatID = ? AND UserID = ?";
 	private static final String pullMessagesFromChatQuery = "SELECT * FROM Messages WHERE ChatID = ?";
 	private static final String addMessageQuery = "INSERT INTO Messages(ChatID, SenderID, SenderName, Message) VALUES (?, ?, ?, ?)";
+	private static final String editMessageQuery = "UPDATE Messages SET Message = ? WHERE MessageID = ?";
+	private static final String pullMessageQuery = "SELECT * FROM Messages WHERE MessageID = ?";
 	private static final String deleteMessageQuery = "DELETE FROM Messages WHERE MessageID = ?";
 
 
@@ -110,10 +114,12 @@ public class DatabaseConnection
 			pullUserChats = connection.prepareStatement(pullUserChatsQuery);
 			pullChatSubscribers = connection.prepareStatement(pullChatSubscribersQuery);
 			addUserChatPair = connection.prepareStatement(addUserChatPairQuery);
-			checkUserChatPair = connection.prepareStatement(checkUserChatPairQuery);
+			pullSingleUserChatPair = connection.prepareStatement(pullSingleUserChatPairQuery);
 			pullMessagesFromChat = connection.prepareStatement(pullMessagesFromChatQuery);
 			addMessage = connection.prepareStatement(addMessageQuery);
+			editMessage = connection.prepareStatement(editMessageQuery);
 			deleteMessage = connection.prepareStatement(deleteMessageQuery);
+			pullMessage = connection.prepareStatement(pullMessageQuery);
 		}
 		catch (SQLException e)
 		{
@@ -227,7 +233,7 @@ public class DatabaseConnection
 			getUserByName.setString(1, username);
 		}
 		catch(SQLException e) {
-			Debugger.record("Error preparing get user by name statement.", debugMask + 1);
+			Debugger.record("Error preparing get user by name statement: " + e.getMessage(), debugMask + 1);
 			return userMap;
 		}
 		
@@ -645,6 +651,8 @@ public class DatabaseConnection
 
 				addUserChatPair.setInt(1, userOneID);
 				addUserChatPair.setInt(2, chatID);
+				addUserChatPair.setInt(3, Permissions.READ | Permissions.TALK);
+				addUserChatPair.setBoolean(4, false);
 				addUserChatPair.execute();
 
 				addUserChatPair.setInt(1, userTwoID);
@@ -749,6 +757,11 @@ public class DatabaseConnection
 		}
 	}
 
+	public boolean updatePermissions(int userID, int commandUserID, int chatID, int permissions)
+	{
+
+		return false;
+	}
 
 	/**
 	 * Deletes a specific chat by ID.
@@ -862,9 +875,8 @@ public class DatabaseConnection
 	 */
 	public boolean addUserChatPair(int chatID, int userID)
 	{
-		if (checkUserChatPair(chatID, userID) == false)
+		if (pullSingleUserChatPair(chatID, userID).size() == 0)
 		{
-
 			try
 			{
 				addUserChatPair.setInt(1, userID);
@@ -900,35 +912,35 @@ public class DatabaseConnection
 	}
 
 	/**
-	 * Checks to see if a particular user-chat pair exists.
+	 * Pulls a single user-chat pair if it is exists. Otherwise returns an empty dictionary.
 	 * @param chatID The ID of the chat.
 	 * @param userID The ID of the user.
-	 * @return A boolean indicating whether or not the pair was located.
+	 * @return A dictionary containing the user-chat pair.
 	 */
-	public boolean checkUserChatPair(int chatID, int userID)
+	public HashMap<String, String> pullSingleUserChatPair(int chatID, int userID)
 	{
 		try
 		{
-			checkUserChatPair.setInt(1, chatID);
-			checkUserChatPair.setInt(2, userID);
+			pullSingleUserChatPair.setInt(1, chatID);
+			pullSingleUserChatPair.setInt(2, userID);
 		}
 		catch (SQLException e)
 		{
 			Debugger.record("Could not set parameters for checkUserChatPair query", debugMask + 1);
-			return false;
+			return new HashMap<String, String>();
 		}
 		try
 		{
-			ResultSet results = checkUserChatPair.executeQuery();
+			ResultSet results = pullSingleUserChatPair.executeQuery();
 			ArrayList<HashMap<String, String>> resultsList = parseResultSet(results);
 
 			if (resultsList.size() == 0)
 			{
-				return false;
+				return new HashMap<String, String>();
 			}
 			else if (resultsList.size() == 1)
 			{
-				return true;
+				return resultsList.get(0);
 			}
 			else
 			{
@@ -944,7 +956,7 @@ public class DatabaseConnection
 			Debugger.record("checkUserChatPair query result was unexpectedly large.", debugMask + 1);
 		}
 
-		return false;
+		return new HashMap<String, String>();
 	}
 
 
@@ -979,6 +991,37 @@ public class DatabaseConnection
 
 		return chatsList;
 	}
+
+	/**
+	 * Pulls a single message by ID.
+	 * @param messageID The ID of the message to pull.
+	 * @return HashMaps storing the message.
+	 */
+	public HashMap<String, String> pullMessage(int messageID)
+	{
+		try
+		{
+			pullMessage.setInt(1, messageID);
+			ResultSet results = pullMessage.executeQuery();
+			ArrayList<HashMap<String, String>> messageList = parseResultSet(results);
+
+			if (messageList.size() == 1)
+			{
+				return messageList.get(0);
+			}
+			else
+			{
+				Debugger.record("Pull message returned unexpected, non-one size of: " + messageList.size(), debugMask);
+				return new HashMap<String, String>();
+			}
+		}
+		catch (SQLException e)
+		{
+			Debugger.record("Error executing pull message from chat statement: " + e.getMessage(), debugMask + 1);
+			return new HashMap<String, String>();
+		}
+	}
+
 
 	/**
 	 * Pulls all messages assigned a specific chatID (I.E., from a single chat).
@@ -1054,6 +1097,31 @@ public class DatabaseConnection
 		}
 
 		return false;
+	}
+
+
+	/**
+	 * Edit a specific message.
+	 * @param messageID The ID of the message to be deleted.
+	 * @param message Text that replaces the previous "Message" column entry.
+	 * @return A boolean indicating success.
+	 */
+
+	public boolean editMessage(int messageID, String message)
+	{
+		try
+		{
+			editMessage.setString(1, message);
+			editMessage.setInt(2, messageID);
+
+			editMessage.execute();
+		}
+		catch (SQLException e)
+		{
+			Debugger.record("Unable to edit message in database: " + e.getMessage(), debugMask);
+			return false;
+		}
+		return true;
 	}
 
 	/**
