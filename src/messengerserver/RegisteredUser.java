@@ -93,6 +93,36 @@ public class RegisteredUser
        sendTransmission(transmitString);
     }
 
+
+
+    /**
+     * Allows another server thread to induce this user to update its requests.
+     * @return A boolean indicating if the pull was successful.
+     */
+    public void pushRequests()
+    {
+        DatabaseConnection connection = DatabasePool.getConnection();
+
+        ArrayList<HashMap<String, String>> requests = connection.pullAllRequests(this.userID);
+
+        Gson json = new Gson();
+        String requestsString = json.toJson(requests);
+        String transmitString = "FP" + Parser.pack(userID, ServerController.USER_ID_LENGTH) + this.sessionID + requestsString;
+
+        connection.close();
+
+        sendTransmission(transmitString);
+    }
+
+
+    /**
+     * Sends an administrative message to this user.
+     * @param message The message to be sent.
+     */
+    public void sendAdministrativeMessage(String message) {
+        sendTransmission("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + message);
+    }
+
     /**
      * Writes to the user's PrintWriter, effectively transmitting a message.
      * Synchronized to prevent garbage from being transmitted over the socket.

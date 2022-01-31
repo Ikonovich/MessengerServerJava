@@ -1,4 +1,4 @@
-package messengerserver;
+package messengerserver.support;
 
 public class Permissions
 {

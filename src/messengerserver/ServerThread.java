@@ -4,13 +4,12 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
-
-import javax.xml.crypto.Data;
+import messengerserver.support.Permissions;
+import messengerserver.support.RequestType;
 
 public class ServerThread implements Runnable 
 {
@@ -123,9 +122,9 @@ public class ServerThread implements Runnable
 
 		if (message.length() > ServerController.PACKET_SIZE)
 		{
-			int interval = ServerController.PACKET_SIZE - 74; // 74 is the size of the Opcode + userID + SessionID + chatID.
-			String header = message.substring(0, 74);
-			String transmitMessage = message.substring(74);
+			int interval = ServerController.PACKET_SIZE - 66; // 66 is the size of the Opcode + userID + SessionID.
+			String header = message.substring(0, 66);
+			String transmitMessage = message.substring(66);
 
 			Debugger.record("Transmitting multi-message of size " + message.length() + " with header " + header, debugMask);
 
@@ -133,6 +132,15 @@ public class ServerThread implements Runnable
 			// Transmits all parts of the message with a message that follows them.
 			do
 			{
+				try
+				{
+					Thread.sleep(5);
+				}
+				catch (Exception e)
+				{
+					Debugger.record("ServerThread failed to sleep during transmit.", debugMask);
+				}
+
 				Debugger.record("Transmitting multi-message component " + transmitMessage.substring(0, interval), debugMask);
 				writer.print("T" + header + transmitMessage.substring(0, interval));
 				writer.flush();
@@ -140,7 +148,7 @@ public class ServerThread implements Runnable
 				transmitMessage = transmitMessage.substring(interval);
 				try
 				{
-					Thread.sleep(3);
+					Thread.sleep(5);
 				}
 				catch (Exception e)
 				{
@@ -256,14 +264,17 @@ public class ServerThread implements Runnable
 				case "PF":
 					pullFriends(inputMap);
 					return;
-				case "AF":
-					addFriend(inputMap);
-					return;
 				case "RF":
 					removeFriend(inputMap);
 					return;
 				case "PR":
-					pullFriendRequests(inputMap);
+					pullRequests(inputMap);
+					return;
+				case "SR":
+					sendRequest(inputMap);
+					return;
+				case "AR":
+					approveRequest(inputMap);
 					return;
 				case "US":
 					searchUserName(inputMap);
@@ -273,6 +284,9 @@ public class ServerThread implements Runnable
 					return;
 				case "CC":
 					createChat(inputMap);
+					return;
+				case "CI":
+					chatInvitation(inputMap);
 					return;
 				case "MP":
 					modifyPermissions(inputMap);
@@ -566,28 +580,161 @@ public class ServerThread implements Runnable
 
 
 	/**
-	 * This function processes all add friend requests sent by this user's client.
-	 * It takes two users, userOne and userTwo. UserOne should be the user that sent
-	 * the friend request. It first checks to see if a corresponding friend request from
-	 * userTwo to UserOne is in the database. If it is, it gets a DB connection and calls
-	 * database.addFriend, which creates all the database items necessary to have two users as
-	 * friends.
-	 *
-	 * If the corresponding pair does *not* exist, this function sends a friend request
-	 * to the second user.
+	 * This function creates a friend request database entry from the sending
+	 * user to the provided user. It then pushes a request update to the sender
+	 * and, if they are online, the receipient.
 	 *
 	 * @param input A dictionary containing UserID and UserName keys, corresponding to
 	 *              userOne's ID and userTwo's ID.
 	 * @return A boolean indicating success or failure.
 	 */
-	public boolean addFriend(HashMap<String, String> input) {
-		
+	public boolean approveRequest(HashMap<String, String> input) {
+
 		DatabaseConnection connection = DatabasePool.getConnection();
 
-		int userOneID = 0;
-		int userTwoID = 0;
+
+		int requestID;
+
+		int senderID;
+		String senderIDstr;
+		String senderName;
+		String requestType;
+		String parameter;
+		HashMap<String, String> request;
+
+		Debugger.record("addFriend function working", debugMask);
+
+
+		try {
+			requestID = Integer.parseInt(input.get("Message"));
+			request = connection.pullRequestbyID(requestID);
+
+			senderID = Integer.parseInt(request.get("UserID"));
+			senderName = request.get("UserName");
+			senderIDstr = request.get("UserID");
+			requestType = request.get("RequestType");
+			parameter = request.get("Parameter");
+
+		} catch (Exception e) {
+			Debugger.record("addFriend function failed to get or parse provided requestID: " + e.getMessage(), debugMask + 1);
+			connection.close();
+			return false;
+		}
+
+		if (requestType.equals("FRIEND")) {
+
+			if (connection.addFriend(this.userID, senderID)) {
+				// Removes the old friend request.
+
+				HashMap<String, String> userMap = new HashMap<>();
+				userMap.put("UserID", input.get("UserID"));
+
+				HashMap<String, RegisteredUser> loggedInUsers = ServerController.getLoggedInUsers();
+
+				connection.removeRequest(requestID);
+
+				transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You are now friends with " + senderName);
+				pullRequests(input);
+				pullFriends(input);
+
+				if (loggedInUsers.containsKey(senderIDstr)) {
+					RegisteredUser userTwo = loggedInUsers.get(senderIDstr);
+					userTwo.sendAdministrativeMessage(this.username + " has accepted your friend request!");
+
+					userTwo.pushFriends();
+					userTwo.pushRequests();
+				}
+
+				connection.close();
+
+				try {
+					Thread.sleep(5);
+				}
+				catch (InterruptedException e) {
+					Debugger.record("Attempt to sleep was interrupted.", debugMask);
+				}
+
+			} else {
+				Debugger.record("addFriend call to database returned false", debugMask + 1);
+				connection.close();
+				return false;
+			}
+			connection.close();
+			return true;
+		}
+		else if (requestType.equals("INVITE")) {
+
+			String chatName = "";
+			int chatID = 0;
+
+			try {
+				chatID = Integer.parseInt(parameter);
+
+				HashMap<String, String> chat = connection.getChat(chatID);
+				chatName = chat.get("ChatName");
+
+			}
+			catch (NullPointerException e) {
+
+				Debugger.record("Expected parameters missing from retrieved chat: " + e.getMessage(), debugMask);
+				return false;
+			}
+
+			connection.addUserChatPair(chatID, chatName, this.userID, Permissions.READ | Permissions.TALK, true);
+
+			connection.removeRequest(requestID);
+
+			HashMap<String, String> userMap = new HashMap<>();
+			userMap.put("UserID", input.get("UserID"));
+
+			HashMap<String, RegisteredUser> loggedInUsers = ServerController.getLoggedInUsers();
+
+
+
+			if (loggedInUsers.containsKey(senderIDstr)) {
+				RegisteredUser userTwo = loggedInUsers.get(senderIDstr);
+				userTwo.sendTransmission("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + this.username + " has accepted your invitation!");
+				userTwo.pushRequests();
+			}
+
+			connection.close();
+
+			// Causes this user's visible requests to update to reflect the change.
+			pullRequests(input);
+
+			try {
+				Thread.sleep(5);
+			}
+			catch (InterruptedException e) {
+				Debugger.record("Attempt to sleep was interrupted.", debugMask);
+			}
+
+			// Causes this user's visible chats to update to reflect the change.
+			pullUserChatPairs(input);
+
+			connection.close();
+			return true;
+		}
+		return false;
+	}
+
+
+	/**
+	 * Sends a new request to the userID provided under the UserName parameter.
+	 * @param input A dictionary containing UserID, UserName, and Message keys.
+	 * @return
+	 */
+
+	public boolean sendRequest(HashMap<String, String> input) {
+
+		DatabaseConnection connection = DatabasePool.getConnection();
+
+		int userOneID;
+		int userTwoID;
 		String userOneIDstr;
 		String userTwoIDstr;
+		String requestType;
+		String parameter;
 
 		Debugger.record("addFriend function working", debugMask);
 
@@ -596,15 +743,19 @@ public class ServerThread implements Runnable
 			userOneIDstr = input.get("UserID");
 			userTwoIDstr = input.get("UserName");
 
+			Gson json = new Gson();
+
+			HashMap<String, String> request = json.fromJson(input.get("Message"), HashMap.class);
+			requestType = request.get("RequestType");
+			parameter = request.get("Parameter");
+
 			userOneID = Integer.parseInt(userOneIDstr);
 			userTwoID = Integer.parseInt(userTwoIDstr);
 		}
 		catch (Exception e)
 		{
-			Debugger.record("addFriend function failed to get or parse provided userIDs: " + e.getMessage(), debugMask + 1);
+			Debugger.record("sendRequest function failed to get or parse provided userIDs: " + e.getMessage(), debugMask + 1);
 
-			String message = "ER" + Parser.pack(Integer.toString(this.userID), ServerController.USER_ID_LENGTH) + sessionID + "Unable to Server thread could not verify the integrity of a messagesend or approve friend request.";
-			transmit(message);
 			connection.close();
 			return false;
 		}
@@ -619,117 +770,55 @@ public class ServerThread implements Runnable
 		catch (NullPointerException ex)
 		{
 			Debugger.record("ServerThread addFriend: Server tried to add a nonexistent friend or something.", debugMask + 1);
+			connection.close();
 			return false;
 		}
 
-		if (connection.checkFriendRequest(userTwoID, userOneID) == true) {
-			if (connection.addFriend(userOneID, userTwoID)) {
-				// Removes the old friend request.
-				connection.removeFriendRequest(userTwoID, userOneID);
+		if (connection.checkRequest(userTwoID, userOneID, requestType, parameter) == false) {
 
-				HashMap<String, String> userMap = new HashMap<>();
-				userMap.put("UserID", input.get("UserID"));
+			boolean returnVal = connection.addRequest(this.userID, this.username, userTwoID, requestType, parameter);
 
-				HashMap<String, RegisteredUser> users = ServerController.getLoggedInUsers();
+			transmit("AM" + Parser.pack(this.userID, ServerController.USER_ID_LENGTH) + this.sessionID + "A request has been sent to " + friendName + "!");
 
+			// Sends a request notification to the other user if they are logged in.
+			HashMap<String, RegisteredUser> loggedInUsers = ServerController.getLoggedInUsers();
 
-				if (users.containsKey(userTwoIDstr)) {
-					RegisteredUser userTwo = users.get(userTwoIDstr);
-					userTwo.sendTransmission("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + this.username + " has accepted your friend request!");
-					userTwo.pushFriends();
-				}
-
-				connection.close();
-
-				transmit("AM" + Parser.pack(this.userID, ServerController.USER_ID_LENGTH) + this.sessionID + "You are now friends with " + friendName + "!");
-
-				try {
-					Thread.sleep(20);
-				} catch (InterruptedException e) {
-					Debugger.record("Attempt to sleep was interrupted.", debugMask);
-				}
-
-				// Causes this user's visible friends to update.
-				pullFriends(input);
-
-				try {
-					Thread.sleep(20);
-				} catch (InterruptedException e) {
-					Debugger.record("Attempt to sleep was interrupted.", debugMask);
-				}
-
-				// Causes this user's visible requests to update to reflect the change.
-				pullFriendRequests(input);
-			} else {
-				Debugger.record("addFriend call to database returned false", debugMask + 1);
-				connection.close();
-				return false;
-			}
-		}
-		else {
-
-			boolean returnVal = false;
-			try
+			if (loggedInUsers.containsKey(userTwoIDstr))
 			{
-				returnVal = connection.addFriendRequest(this.userID, this.username, userTwoID);
-
-				// Sends a friend request notification to the other user if they are logged in.
-				HashMap<String, RegisteredUser> loggedInUsers = ServerController.getLoggedInUsers();
-
-				transmit("AM" + Parser.pack(this.userID, ServerController.USER_ID_LENGTH) + this.sessionID + "A friend request has been sent to " + friendName + "!");
-
-
-				if (loggedInUsers.containsKey(userTwoIDstr))
-				{
-					// Building the notification.
-					RegisteredUser friendUser = loggedInUsers.get(userTwoIDstr);
-					String friendID = Parser.pack(friendUser.getUserIDstr(), 32);
-					String friendSessionID = friendUser.getSessionID();
-
-					HashMap<String, String> trimmedSender = new HashMap<>();
-
-					trimmedSender.put("UserID", String.valueOf(this.userID));
-					trimmedSender.put("UserName", this.username);
-
-					ArrayList<HashMap<String, String>> senderList = new ArrayList<>();
-					senderList.add(trimmedSender);
-
-					Gson json = new Gson();
-					String senderJson = json.toJson(senderList);
-
-					friendUser.sendTransmission("FR" + friendID + friendSessionID  + senderJson);
-				}
+				loggedInUsers.get(userTwoIDstr).pushRequests();
 			}
-			catch (Exception e)
-			{
-				Debugger.record("Unable to send friend request notification: " + e.getMessage(), debugMask);
-			}
+
 			connection.close();
 			return returnVal;
 		}
+		connection.close();
 		return false;
 	}
 
+
+
 	/**
-	 * Requests all friend requests associated with the currently logged in user from the database connection,
+	 * Requests all requests associated with the currently logged in user from the database connection,
 	 * then transmits the result.
 	 * @param input A dictionary parsed from the incoming transmission.
 	 * @return A boolean indicating success.
 	 */
 
-	public boolean pullFriendRequests(HashMap<String, String> input)
+	public boolean pullRequests(HashMap<String, String> input)
 	{
 		DatabaseConnection connection = DatabasePool.getConnection();
 		boolean returnVal = false;
 
 		try
 		{
-			ArrayList<HashMap<String, String>> friendRequests = connection.pullFriendRequests(this.userID);
+
+			// Pull and transmit all requests for this user.
+			ArrayList<HashMap<String, String>> requests = connection.pullAllRequests(this.userID);
 
 			Gson json = new Gson();
-			String friendRequestsJson = json.toJson(friendRequests);
-			transmit("FR" + Parser.pack(this.userID, 32) + this.sessionID + friendRequestsJson);
-			returnVal = true;
+			String requestsInJson = json.toJson(requests);
+			transmit("RP" + Parser.pack(this.userID, 32) + this.sessionID + requestsInJson);
+
 		}
 		catch (Exception e)
 		{
@@ -740,20 +829,15 @@ public class ServerThread implements Runnable
 		return returnVal;
 	}
 
-	public boolean removeFriendRequest(HashMap<String, String> input)
+	public boolean removeRequest(HashMap<String, String> input)
 	{
 		DatabaseConnection connection = DatabasePool.getConnection();
 
-		int userOneID = 0;
-		int userTwoID = 0;
+		int requestID = 0;
 
 		try
 		{
-			String userOne = input.get("UserID");
-			String userTwo = input.get("UserName");
-
-			userOneID = Integer.parseInt(userOne);
-			userTwoID = Integer.parseInt(userTwo);
+			requestID = Integer.parseInt(input.get("Message"));
 		}
 		catch (Exception e)
 		{
@@ -762,7 +846,7 @@ public class ServerThread implements Runnable
 			return false;
 		}
 
-		boolean returnVal = (connection.removeFriendRequest(userOneID, userTwoID));
+		boolean returnVal = (connection.removeRequest(requestID));
 		connection.close();
 		return returnVal;
 	}
@@ -879,12 +963,73 @@ public class ServerThread implements Runnable
 			return false;
 		}
 
+		// Sanity check to ensure the creator of the chat and the active user are the same.
+		if ((creatorID != this.userID) || (!creatorName.equals(this.username))) {
+			Debugger.record("Failed sanity check. CreatorID: " + creatorID + " Expected ID: " + this.userID
+					+ " creatorName: " + creatorName + " Expected name: " + this.username, debugMask);
+			return false;
+		}
+
 		DatabaseConnection connection = DatabasePool.getConnection();
 
-		connection.createChat(chatName, creatorID, creatorName);
+		int chatID = connection.createChat(chatName, creatorID, creatorName);
+
+		Debugger.record("Create chat result in Server: " + chatID, debugMask);
+		boolean addChatOwner = false;
+
+		if (chatID != -1)
+		{
+			// Creates a user-chat pair for the creator, giving them full permissions and
+			// setting them as owner and a member.
+			addChatOwner = connection.addUserChatPair(chatID, chatName, creatorID, Permissions.READ | Permissions.TALK | Permissions.UPLOAD |
+					Permissions.DELETE | Permissions.RESTRICT | Permissions.MUTE | Permissions.BAN | Permissions.OWNER, true);
+		}
+		else {
+			Debugger.record("Add chatID was negative.", debugMask);
+			return false;
+		}
+
+		if (addChatOwner == true) {
+			transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "Chat " + chatName +" has been created successfully.");
+			pullUserChatPairs(input);
+		}
+		else {
+			Debugger.record("Add chat owner was false.", debugMask);
+			return false;
+		}
 		return true;
 	}
 
+
+	public boolean chatInvitation(HashMap<String, String> input)
+	{
+		int invitedUserID;
+		int chatID;
+		String chatName;
+
+		try
+		{
+			invitedUserID = Integer.parseInt(input.get("UserName"));
+			chatID = Integer.parseInt(input.get("ChatID"));
+			chatName = input.get("Message");
+		}
+		catch (NumberFormatException e) {
+			Debugger.record("Provided ID for chatCommand was invalid: " + e.getMessage(), debugMask);
+			return false;
+		}
+		catch (NullPointerException e)
+		{
+			Debugger.record("chatCommand input doesn't contain appropriate entries: " + e.getMessage(), debugMask);
+			return false;
+		}
+
+		DatabaseConnection connection = DatabasePool.getConnection();
+
+		connection.addRequest(this.userID, this.username, invitedUserID, RequestType.INVITE, String.valueOf(chatID) + chatName);
+
+
+		return true;
+	}
 
 	 /**
 	 * Takes a message component containing a dictionary containing "Command" and "UserID" components.
@@ -931,7 +1076,7 @@ public class ServerThread implements Runnable
 
 		DatabaseConnection connection = DatabasePool.getConnection();
 
-		HashMap<String, String> userPair = connection.pullSingleUserChatPair(chatID, userID);
+		HashMap<String, String> userPair = connection.pullSingleUserChatPair(chatID, this.userID);
 		HashMap<String, String> commandedUserPair = connection.pullSingleUserChatPair(chatID, commandedUserID);
 
 		int userPermissions;
@@ -955,7 +1100,7 @@ public class ServerThread implements Runnable
 
 		if (commandedUserPermissions >= userPermissions)
 		{
-			transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+			transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 			return false;
 		}
 
@@ -969,7 +1114,7 @@ public class ServerThread implements Runnable
 				}
 				else
 				{
-					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 					return false;
 				}
 				break;
@@ -980,7 +1125,7 @@ public class ServerThread implements Runnable
 				}
 				else
 				{
-					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 					return false;
 				}
 				break;
@@ -991,7 +1136,7 @@ public class ServerThread implements Runnable
 				}
 				else
 				{
-					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 					return false;
 				}
 				break;
@@ -1002,7 +1147,7 @@ public class ServerThread implements Runnable
 				}
 				else
 				{
-					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 					return false;
 				}
 				break;
@@ -1013,7 +1158,7 @@ public class ServerThread implements Runnable
 				}
 				else
 				{
-					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 					return false;
 				}
 				break;
@@ -1024,7 +1169,7 @@ public class ServerThread implements Runnable
 				}
 				else
 				{
-					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 					return false;
 				}
 				break;
@@ -1035,7 +1180,7 @@ public class ServerThread implements Runnable
 				}
 				else
 				{
-					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 					return false;
 				}
 				break;
@@ -1046,7 +1191,7 @@ public class ServerThread implements Runnable
 				}
 				else
 				{
-					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 					return false;
 				}
 				break;
@@ -1057,7 +1202,7 @@ public class ServerThread implements Runnable
 				}
 				else
 				{
-					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 					return false;
 				}
 				break;
@@ -1068,7 +1213,7 @@ public class ServerThread implements Runnable
 				}
 				else
 				{
-					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 					return false;
 				}
 				break;
@@ -1079,7 +1224,7 @@ public class ServerThread implements Runnable
 				}
 				else
 				{
-					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 					return false;
 				}
 				break;
@@ -1090,13 +1235,13 @@ public class ServerThread implements Runnable
 				}
 				else
 				{
-					transmit("AM" + Parser.pack(userID, ServerController.MAX_USERNAME_LENGTH) + sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
+					transmit("AM" + Parser.pack(this.userID, ServerController.MAX_USERNAME_LENGTH) + this.sessionID + "You do not have the required permissions to " + command + " userID " + commandedUserID);
 					return false;
 				}
 				break;
 		}
 		int permissions = commandedUserPermissions + permissionAdjustment;
-		boolean returnVal = connection.updatePermissions(userID, commandedUserID, chatID, permissions);
+		boolean returnVal = connection.updatePermissions(this.userID, commandedUserID, chatID, permissions);
 
 
 		if (returnVal == true)

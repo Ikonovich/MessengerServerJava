@@ -1,8 +1,9 @@
 package messengerserver;
 
 
+import messengerserver.support.Permissions;
+
 import javax.naming.SizeLimitExceededException;
-import javax.swing.plaf.basic.BasicScrollPaneUI;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,16 +23,19 @@ public class DatabaseConnection
 	private PreparedStatement createUser;
 	private PreparedStatement deleteUser;
 	private PreparedStatement pullFriends;
-	private PreparedStatement addFriendRequest;
-	private PreparedStatement removeFriendRequest;
-	private PreparedStatement checkFriendRequest;
-	private PreparedStatement pullFriendRequests;
+	private PreparedStatement addRequest;
+	private PreparedStatement removeRequest;
+	private PreparedStatement checkRequest;
+	private PreparedStatement pullRequestByID;
+	private PreparedStatement pullRequestsIn;
+	private PreparedStatement pullRequestsOut;
+	private PreparedStatement pullAllRequests;
 	private PreparedStatement addFriend;
 	private PreparedStatement removeFriend;
 	private PreparedStatement checkFriend;
 	private PreparedStatement createChat;
 	private PreparedStatement deleteChat;
-	private PreparedStatement checkChatID;
+	private PreparedStatement pullSingleChat;
 	private PreparedStatement addUserChatPair;
 	private PreparedStatement pullSingleUserChatPair;
 	private PreparedStatement pullUserChats;
@@ -50,19 +54,22 @@ public class DatabaseConnection
 	private static final String createUserQuery ="INSERT INTO RegisteredUsers (Username, PasswordHash, PasswordSalt) VALUES (?, ?, ?)";
 	private static final String deleteUserQuery = "DELETE FROM RegisteredUsers WHERE UserID = ?";
 	private static final String pullFriendsQuery = "SELECT * FROM FriendPairs WHERE UserID = ?";
-	private static final String addFriendRequestQuery = "INSERT INTO FriendRequests(UserID, UserName, FriendUserID, FriendUserName) VALUES (?, ?, ?, ?)";
-	private static final String removeFriendRequestQuery = "DELETE FROM FriendRequests WHERE UserID = ? and FriendUserID = ?";
-	private static final String checkFriendRequestQuery = "SELECT * FROM FriendRequests WHERE UserID = ? AND FriendUserID = ?";
-	private static final String pullFriendRequestsQuery = "SELECT * FROM FriendRequests WHERE FriendUserID = ?";
+	private static final String addRequestQuery = "INSERT INTO Requests(UserID, UserName, FriendUserID, FriendUserName, RequestType, Parameter) VALUES (?, ?, ?, ?, ?, ?)";
+	private static final String removeRequestQuery = "DELETE FROM Requests WHERE RequestID = ?";
+	private static final String checkRequestQuery = "SELECT * FROM Requests WHERE UserID = ? AND FriendUserID = ? AND RequestType = ? AND Parameter = ?";
+	private static final String pullRequestByIDQuery = "SELECT * FROM Requests WHERE RequestID = ?";
+	private static final String pullRequestsInQuery = "SELECT * FROM Requests WHERE FriendUserID = ?";
+	private static final String pullAllRequestsQuery = "SELECT * FROM Requests WHERE UserID = ? OR FriendUserID = ?";
+	private static final String pullRequestsOutQuery = "SELECT * FROM Requests WHERE UserID = ?";
 	private static final String addFriendQuery = "INSERT INTO FriendPairs (UserID, FriendUserID, FriendUserName, PrivateChatID) VALUES (?, ?, ?, ?)";
 	private static final String removeFriendQuery = "DELETE FROM FriendPairs WHERE UserID = ? AND FriendUserID = ?";
 	private static final String checkFriendQuery = "SELECT * FROM FriendPairs WHERE UserID = ? AND FriendUserID = ?";
 	private static final String createChatQuery = "INSERT INTO Chats (ChatID, ChatName, OwnerID, OwnerName) VALUES (?, ?, ?, ?)";
 	private static final String deleteChatQuery = "DELETE FROM Chats WHERE ChatID = ?";
-	private static final String checkChatIDQuery = "SELECT * FROM Chats WHERE ChatID = ?";
+	private static final String pullSingleChatQuery = "SELECT * FROM Chats WHERE ChatID = ?";
 	private static final String pullUserChatsQuery = "SELECT * FROM UserChatPairs WHERE UserID = ?";
 	private static final String pullChatSubscribersQuery = "SELECT * FROM UserChatPairs WHERE ChatID = ?";
-	private static final String addUserChatPairQuery = "INSERT INTO UserChatPairs(UserID, ChatID, Permissions, IsMember) VALUES (?, ?, ?, ?)";
+	private static final String addUserChatPairQuery = "INSERT INTO UserChatPairs(UserID, ChatID, ChatName, Permissions, IsMember) VALUES (?, ?, ?, ?, ?)";
 	private static final String pullSingleUserChatPairQuery = "SELECT * FROM UserChatPairs WHERE ChatID = ? AND UserID = ?";
 	private static final String pullMessagesFromChatQuery = "SELECT * FROM Messages WHERE ChatID = ?";
 	private static final String addMessageQuery = "INSERT INTO Messages(ChatID, SenderID, SenderName, Message) VALUES (?, ?, ?, ?)";
@@ -73,14 +80,11 @@ public class DatabaseConnection
 
 	public DatabaseConnection(String database, String user, String pass) 
 	{
-		
-		
 		// Here we connect to the database.
 
 		Debugger.record("Database Connection being created.", 2);
 		try 
 		{
-
 			DriverManager.registerDriver(new com.mysql.cj.jdbc.Driver());
 			connection = DriverManager.getConnection(database, user, pass);
 			Debugger.record("Database connection established", 2);
@@ -101,16 +105,19 @@ public class DatabaseConnection
 			createUser = connection.prepareStatement(createUserQuery);
 			deleteUser = connection.prepareStatement(deleteUserQuery);
 			pullFriends = connection.prepareStatement(pullFriendsQuery);
-			addFriendRequest = connection.prepareStatement(addFriendRequestQuery);
-			removeFriendRequest = connection.prepareStatement(removeFriendRequestQuery);
-			checkFriendRequest = connection.prepareStatement(checkFriendRequestQuery);
-			pullFriendRequests = connection.prepareStatement(pullFriendRequestsQuery);
+			addRequest = connection.prepareStatement(addRequestQuery);
+			removeRequest = connection.prepareStatement(removeRequestQuery);
+			checkRequest = connection.prepareStatement(checkRequestQuery);
+			pullRequestByID = connection.prepareStatement(pullRequestByIDQuery);
+			pullRequestsIn = connection.prepareStatement(pullRequestsInQuery);
+			pullRequestsOut = connection.prepareStatement(pullRequestsOutQuery);
+			pullAllRequests = connection.prepareStatement(pullAllRequestsQuery);
 			addFriend = connection.prepareStatement(addFriendQuery);
 			removeFriend = connection.prepareStatement(removeFriendQuery);
 			checkFriend = connection.prepareStatement(checkFriendQuery);
 			createChat = connection.prepareStatement(createChatQuery);
 			deleteChat = connection.prepareStatement(deleteChatQuery);
-			checkChatID = connection.prepareStatement(checkChatIDQuery);
+			pullSingleChat = connection.prepareStatement(pullSingleChatQuery);
 			pullUserChats = connection.prepareStatement(pullUserChatsQuery);
 			pullChatSubscribers = connection.prepareStatement(pullChatSubscribersQuery);
 			addUserChatPair = connection.prepareStatement(addUserChatPairQuery);
@@ -396,7 +403,7 @@ public class DatabaseConnection
 	 * @param friendUserID The ID of the user receiving the request.
 	 * @return A boolean indicating whether or not the request was successfully added to the database.
 	 */
-	public boolean addFriendRequest(int userID, String username, int friendUserID)
+	public boolean addRequest(int userID, String username, int friendUserID, String requestType, String parameter)
 	{
 
 		HashMap<String, String> friend = getUser(friendUserID);
@@ -406,10 +413,12 @@ public class DatabaseConnection
 			String friendUserName = friend.get("UserName");
 			try
 			{
-				addFriendRequest.setInt(1, userID);
-				addFriendRequest.setString(2, username);
-				addFriendRequest.setInt(3, friendUserID);
-				addFriendRequest.setString(4, friendUserName);
+				addRequest.setInt(1, userID);
+				addRequest.setString(2, username);
+				addRequest.setInt(3, friendUserID);
+				addRequest.setString(4, friendUserName);
+				addRequest.setString(5, requestType);
+				addRequest.setString(6, parameter);
 			}
 			catch (Exception e)
 			{
@@ -419,44 +428,41 @@ public class DatabaseConnection
 
 			try
 			{
-				addFriendRequest.execute();
+				addRequest.execute();
 
-				if (addFriendRequest.getUpdateCount() > 0)
+				if (addRequest.getUpdateCount() > 0)
 				{
 					return true;
 				}
 				else {
-					Debugger.record("Executed addFriend query, but no friend pair was created.", debugMask + 1);
+					Debugger.record("Executed addRequest query, but no friend pair was created.", debugMask + 1);
 				}
 
 			}
 			catch (SQLException e)
 			{
-				Debugger.record("Error when executing addFriend query." + e.getMessage(), debugMask + 1);
+				Debugger.record("Error when executing return true; query." + e.getMessage(), debugMask + 1);
 			}
 		}
-
 		return false;
 	}
 
 
 	/**
 	 * Delete a friend request from the database.
-	 * @param userID
-	 * @param friendUserID
-	 * @return
+	 * @param requestID the ID of the request to delete.
+	 * @return A boolean indicating success.
 	 */
-	public boolean removeFriendRequest(int userID, int friendUserID)
+	public boolean removeRequest(int requestID)
 	{
 
 		try
 		{
-			removeFriendRequest.setInt(1, userID);
-			removeFriendRequest.setInt(2, friendUserID);
+			removeRequest.setInt(1, requestID);
 
-			removeFriendRequest.execute();
+			removeRequest.execute();
 
-			if (removeFriendRequest.getUpdateCount() > 0)
+			if (removeRequest.getUpdateCount() > 0)
 			{
 				return true;
 			}
@@ -478,19 +484,21 @@ public class DatabaseConnection
 	 * When the server receives a friend request, it uses this method to check if the counterbalancing request
 	 * has already been made. If it has, it calls addFriend(), adding two new friend pairs - A UserOne:UserTwo
 	 * pair and a UserTwo: UserOne pair - to the database.
-	 * If a counterbalancing friend request does not already exist, the server calls addFriendRequest().
+	 * If a counterbalancing friend request does not already exist, the server calls addRequest().
 	 *
 	 * @param userID The ID of the requesting user.
 	 * @param friendUserID The ID of the user receiving the request.
 	 * @return A boolean indicating if the requested pair exists.
 	 */
 
-	public boolean checkFriendRequest(int userID, int friendUserID)
+	public boolean checkRequest(int userID, int friendUserID, String requestType, String parameter)
 	{
 		try
 		{
-			checkFriendRequest.setInt(1, userID);
-			checkFriendRequest.setInt(2, friendUserID);
+			checkRequest.setInt(1, userID);
+			checkRequest.setInt(2, friendUserID);
+			checkRequest.setString(3, requestType);
+			checkRequest.setString(4, parameter);
 		}
 		catch (SQLException e)
 		{
@@ -499,7 +507,7 @@ public class DatabaseConnection
 		}
 		try
 		{
-			ResultSet results = checkFriendRequest.executeQuery();
+			ResultSet results = checkRequest.executeQuery();
 			ArrayList<HashMap<String, String>> resultsList = parseResultSet(results);
 
 			if (resultsList.size() == 0)
@@ -527,29 +535,108 @@ public class DatabaseConnection
 		return false;
 	}
 
+
+
 	/**
-	 * This method pulls all friend requests directed towards a specific user (I.E., where the FriendUserID of
+	 * This method pulls all friend requests received by a specific user (I.E., where the FriendUserID of
 	 * the request is that user's ID).
 	 * @param userID The ID of the user.
 	 * @return An Arraylist of HashMaps containing all active friend requests directed at this user.
 	 */
-	public ArrayList<HashMap<String, String>> pullFriendRequests(int userID)
+	public ArrayList<HashMap<String, String>> pullRequestsIn(int userID)
 	{
-		ArrayList<HashMap<String, String>> friendRequests = new ArrayList<>();
+		ArrayList<HashMap<String, String>> requests = new ArrayList<>();
 		try
 		{
-			pullFriendRequests.setInt(1, userID);
-			ResultSet results = pullFriendRequests.executeQuery();
+			pullRequestsIn.setInt(1, userID);
+			ResultSet results = pullRequestsIn.executeQuery();
 
-			friendRequests = parseResultSet(results);
+			requests = parseResultSet(results);
 		}
 		catch (SQLException e)
 		{
 			Debugger.record("Failed to pull friend requests in database connection: " + e.getMessage(), debugMask);
 		}
 
-		return friendRequests;
+		return requests;
 	}
+
+
+
+	/**
+	 * This method pulls all requests sent from a specific user (I.E., where the UserID of
+	 * the request is that user's ID).
+	 * @param userID The ID of the user.
+	 * @return An Arraylist of HashMaps containing all active friend requests directed at this user.
+	 */
+	public ArrayList<HashMap<String, String>> pullRequestsOut(int userID)
+	{
+		ArrayList<HashMap<String, String>> requests = new ArrayList<>();
+		try
+		{
+			pullRequestsOut.setInt(1, userID);
+			ResultSet results = pullRequestsOut.executeQuery();
+
+			requests = parseResultSet(results);
+		}
+		catch (SQLException e)
+		{
+			Debugger.record("Failed to pull sent requests in database connection: " + e.getMessage(), debugMask);
+		}
+
+		return requests;
+	}
+
+
+	/**
+	 * This method pulls all requests sent to and received by a specific user (I.E., where the UserID of
+	 * the request is that user's ID).
+	 * @param userID The ID of the user.
+	 * @return An Arraylist of HashMaps containing all active friend requests directed at this user.
+	 */
+	public ArrayList<HashMap<String, String>> pullAllRequests(int userID)
+	{
+		ArrayList<HashMap<String, String>> requests = new ArrayList<>();
+		try
+		{
+			pullAllRequests.setInt(1, userID);
+			pullAllRequests.setInt(2, userID);
+			ResultSet results = pullAllRequests.executeQuery();
+
+			requests = parseResultSet(results);
+		}
+		catch (SQLException e)
+		{
+			Debugger.record("Failed to pull all requests in database connection: " + e.getMessage(), debugMask);
+		}
+
+		return requests;
+	}
+
+
+	/**ID
+	 * @param requestID The ID of the request to get.
+	 * @return The message if found, an empty hashmap of strings otherwise.
+	 */
+	public HashMap<String, String> pullRequestbyID(int requestID)
+	{
+		try
+		{
+			pullRequestByID.setInt(1, requestID);
+			ResultSet results = pullRequestByID.executeQuery();
+
+			ArrayList<HashMap<String, String>> requestList = parseResultSet(results);
+
+			return requestList.size() > 0 ? requestList.get(0) : new HashMap<String, String>();
+		}
+		catch (SQLException e)
+		{
+			Debugger.record("Failed to pull sent requests in database connection: " + e.getMessage(), debugMask);
+
+		}
+		return new HashMap<String, String>();
+	}
+
 
 	/**
 	 * This method checks to see if two users are friends, by
@@ -618,7 +705,6 @@ public class DatabaseConnection
 
 		if (checkFriend(userOneID, userTwoID) == false)
 		{
-
 			String userOneName = userOne.get("UserName");
 			String userTwoName = userTwo.get("UserName");
 			try
@@ -626,15 +712,12 @@ public class DatabaseConnection
 				int chatID = 0;
 				do
 				{
-					chatID = Cryptographer.generateRandomInteger(8);
+					chatID = Cryptographer.generateRandomInteger(ServerController.CHAT_ID_LENGTH);
 
 				} while ((chatID == 0) || checkChatID(chatID) == true);
 
-				createChat.setInt(1, chatID);
-				createChat.setString(2, "Private Chat");
-				createChat.setInt(3, userOneID);
-				createChat.setString(4, "No Owner");
-				createChat.execute();
+				String chatName =  "Private Chat"; //"Chat between " + userOneName + " and " + userTwoName;
+				createChat(chatID, chatName, 0, "Controller");
 
 				addFriend.setInt(1, userOneID);
 				addFriend.setInt(2, userTwoID);
@@ -649,15 +732,9 @@ public class DatabaseConnection
 				addFriend.setInt(4, chatID);
 				addFriend.execute();
 
-				addUserChatPair.setInt(1, userOneID);
-				addUserChatPair.setInt(2, chatID);
-				addUserChatPair.setInt(3, Permissions.READ | Permissions.TALK);
-				addUserChatPair.setBoolean(4, false);
-				addUserChatPair.execute();
+				addUserChatPair(chatID, chatName, userOneID, Permissions.READ | Permissions.TALK, false);
 
-				addUserChatPair.setInt(1, userTwoID);
-				addUserChatPair.setInt(2, chatID);
-				addUserChatPair.execute();
+				addUserChatPair(chatID, chatName, userTwoID, Permissions.READ | Permissions.TALK, false);
 
 				return true;
 			}
@@ -710,7 +787,49 @@ public class DatabaseConnection
 
 
 	/**
-	 * Executes a database query to create a new Chat.
+	 * Executes a database query to create a new Chat. Takes an externally generated,
+	 * previously validated ID.
+	 * @param creatorID The ID of the User who will be the Owner of the chat.
+	 * @return An int indicating the ChatID of the new Chat. -1 if there is an error.
+	 */
+
+	public int createChat(int chatID, String chatName, int creatorID, String creatorName)
+	{
+
+		try {
+
+			createChat.setInt(1, chatID);
+			createChat.setString(2, chatName);
+			createChat.setInt(3, creatorID);
+			createChat.setString(4, creatorName);
+
+		}
+		catch(SQLException e) {
+			Debugger.record("Error preparing create chat statement.", debugMask + 1);
+			return -1;
+		}
+
+		try {
+			createChat.execute();
+			if (createChat.getUpdateCount() == 1) {
+				Debugger.record("New chat has been created by user " + creatorID, debugMask);
+
+				return chatID;
+			}
+			else {
+				Debugger.record("CreateChat query was executed, but no rows were modified.", debugMask + 1);
+				return -1;
+			}
+		}
+		catch(SQLException e) {
+			Debugger.record("Error executing create chat statement." + e.getMessage(), debugMask + 1);
+			return -1;
+		}
+	}
+
+
+	/**
+	 * Executes a database query to create a new Chat.  Generates a new ChatID.
 	 * @param creatorID The ID of the User who will be the Owner of the chat.
 	 * @return An int indicating the ChatID of the new Chat. -1 if there is an error.
 	 */
@@ -742,7 +861,6 @@ public class DatabaseConnection
 			if (createChat.getUpdateCount() == 1) {
 				Debugger.record("New chat has been created by user " + creatorID, debugMask);
 
-				addUserChatPair(chatID, creatorID);
 
 				return chatID;
 			}
@@ -802,16 +920,16 @@ public class DatabaseConnection
 
 		try
 		{
-			checkChatID.setInt(1, chatID);
+			pullSingleChat.setInt(1, chatID);
 		}
 		catch (SQLException e)
 		{
-			Debugger.record("Could not set parameters for checkChatID query", debugMask + 1);
+			Debugger.record("Could not set parameters for pullSingleChat query", debugMask + 1);
 			return false;
 		}
 		try
 		{
-			ResultSet results = checkChatID.executeQuery();
+			ResultSet results = pullSingleChat.executeQuery();
 			ArrayList<HashMap<String, String>> resultsList = parseResultSet(results);
 
 			if (resultsList.size() == 0)
@@ -829,15 +947,63 @@ public class DatabaseConnection
 		}
 		catch (SQLException e)
 		{
-			Debugger.record("Error executing checkChatID query." + e.getMessage(), debugMask + 1);
+			Debugger.record("Error executing pullSingleChat query." + e.getMessage(), debugMask + 1);
 		}
 		catch (SizeLimitExceededException e)
 		{
-			Debugger.record("checkChatID query result was unexpectedly large.", debugMask + 1);
+			Debugger.record("pullSingleChat query result was unexpectedly large.", debugMask + 1);
 		}
 
 		return false;
 	}
+
+
+	/**
+	 * This method retrieves a single chat by a specific ID.
+	 * @param chatID The ID to check.
+	 * @return True if the chat was found, false otherwise.
+	 */
+	public HashMap<String, String> getChat(int chatID) {
+
+		try
+		{
+			pullSingleChat.setInt(1, chatID);
+		}
+		catch (SQLException e)
+		{
+			Debugger.record("Could not set parameters for pullSingleChat query", debugMask + 1);
+			return new HashMap<>();
+		}
+		try
+		{
+			ResultSet results = pullSingleChat.executeQuery();
+			ArrayList<HashMap<String, String>> resultsList = parseResultSet(results);
+
+			if (resultsList.size() == 0)
+			{
+				return new HashMap<>();
+			}
+			else if (resultsList.size() == 1)
+			{
+				return resultsList.get(0);
+			}
+			else if (resultsList.size() > 1)
+			{
+				throw new SizeLimitExceededException();
+			}
+		}
+		catch (SQLException e)
+		{
+			Debugger.record("Error executing pullSingleChat query." + e.getMessage(), debugMask + 1);
+		}
+		catch (SizeLimitExceededException e)
+		{
+			Debugger.record("pullSingleChat query result was unexpectedly large.", debugMask + 1);
+		}
+
+		return new HashMap<>();
+	}
+
 
 	/**
 	 * Retrieves an ArrayList of all User-Chat pairs for a specific chat.
@@ -873,39 +1039,45 @@ public class DatabaseConnection
 	 * @param userID The ID of the user.
 	 * @return a boolean indicating success.
 	 */
-	public boolean addUserChatPair(int chatID, int userID)
+	public boolean addUserChatPair(int chatID, String chatName, int userID, int permissions, boolean isMember)
 	{
-		if (pullSingleUserChatPair(chatID, userID).size() == 0)
+		if (pullSingleUserChatPair(chatID, userID).size() != 0)
 		{
-			try
+			Debugger.record("Duplicate user-chat pair found with ChatID: " + chatID, debugMask);
+			return false;
+		}
+
+		try
+		{
+			addUserChatPair.setInt(1, userID);
+			addUserChatPair.setInt(2, chatID);
+			addUserChatPair.setString(3, chatName);
+			addUserChatPair.setInt(4, permissions);
+			addUserChatPair.setBoolean(5, isMember);
+		}
+		catch (SQLException e)
+		{
+			Debugger.record("addUserChatPair query with parameters ChatID: " + chatID + " UserID: " + userID + " failed due to exception.", debugMask + 1);
+			return false;
+		}
+
+		try
+		{
+			addUserChatPair.execute();
+
+			if (addUserChatPair.getUpdateCount() > 0)
 			{
-				addUserChatPair.setInt(1, userID);
-				addUserChatPair.setInt(2, chatID);
+				Debugger.record("New chat-user pair created with parameters:\n Chat: " + chatID + "\nUser: " + userID, debugMask);
+				return true;
 			}
-			catch (SQLException e)
-			{
-				Debugger.record("addUserChatPair query with parameters ChatID: " + chatID + " UserID: " + userID + " failed due to exception.", debugMask + 1);
-				return false;
+			else {
+				Debugger.record("Executed addUserChatPair query, but no  user-chat pair was created.", debugMask + 1);
 			}
 
-			try
-			{
-				addUserChatPair.execute();
-
-				if (addUserChatPair.getUpdateCount() > 0)
-				{
-					Debugger.record("New chat-user pair created with parameters:\n Chat: " + chatID + "\nUser: " + userID, debugMask);
-					return true;
-				}
-				else {
-					Debugger.record("Executed addUserChatPair query, but no  user-chat pair was created.", debugMask + 1);
-				}
-
-			}
-			catch (SQLException e)
-			{
-				Debugger.record("Error when executing addUserChatPair query with parameters ChatID: " + chatID + " UserID: " + userID + ". " + e.getMessage(), debugMask + 1);
-			}
+		}
+		catch (SQLException e)
+		{
+			Debugger.record("Error when executing addUserChatPair query with parameters ChatID: " + chatID + " UserID: " + userID + ". " + e.getMessage(), debugMask + 1);
 		}
 
 		return false;
@@ -1233,7 +1405,7 @@ public class DatabaseConnection
 		try {
 			PreparedStatement newUser = connection.prepareStatement("INSERT INTO RegisteredUsers(UserID, UserName, PasswordHash, PasswordSalt) VALUES (?, ?, ?, ?)");
 			PreparedStatement newFriendPair = connection.prepareStatement("INSERT INTO FriendPairs(UserID, FriendUserID, FriendUserName, PrivateChatID) VALUES (?, ?, ?, ?)");
-			PreparedStatement newFriendRequest = connection.prepareStatement("INSERT INTO FriendRequests(UserID, UserName, FriendUserID, FriendUserName) VALUES (?, ?, ?, ?)");
+			PreparedStatement newRequest = connection.prepareStatement("INSERT INTO Requests(UserID, UserName, FriendUserID, FriendUserName, RequestType, Parameter) VALUES (?, ?, ?, ?, ?, ?)");
 
 			PreparedStatement newChat = connection.prepareStatement("INSERT INTO Chats(ChatID, OwnerID) VALUES (?, ?)");
 			PreparedStatement newUserChatPair = connection.prepareStatement("INSERT INTO UserChatPairs(UserID, ChatID) VALUES (?, ?)");
@@ -1298,11 +1470,11 @@ public class DatabaseConnection
 			newFriendPair.execute();
 
 			// Creating new friend request for testuserOne.
-			newFriendRequest.setInt(1, 7);
-			newFriendRequest.setString(2, "testuserFour");
-			newFriendRequest.setInt(3, 4);
-			newFriendRequest.setString(4, "testUserOne");
-			newFriendRequest.execute();
+			newRequest.setInt(1, 7);
+			newRequest.setString(2, "testuserFour");
+			newRequest.setInt(3, 4);
+			newRequest.setString(4, "testUserOne");
+			newRequest.execute();
 
 			// Creating a test chat owned by testuserOne.
 			newChat.setInt(1, 1);

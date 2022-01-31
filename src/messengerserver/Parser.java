@@ -1,4 +1,6 @@
 package messengerserver;
+import messengerserver.support.Opcodes;
+
 import java.util.HashMap;
 
 
@@ -23,7 +25,7 @@ import java.util.HashMap;
 // 01000: Session ID - 32 characters - Required for all non-login and non-registration interactions. Very weakly verifies connection
 // integrity.
 // 10000: Chat ID - 8 characters - Identifies a single chat between one or multiple people.
-// 100000: Message ID - 32 characters - Identifies a single chat between one or multiple people.
+// 100000: Message ID - 32 characters - Identifies a single message.
 //
 // The final component of a received transmission, the Message, is whatever remains after the item determined by the bit mask are parsed out.
 // See "MessageDefinitions.txt" for full information on transmission types and parsing.
@@ -54,11 +56,14 @@ public class Parser {
 		opcodeMap.put("LR", Opcodes.USERNAME | Opcodes.PASSWORD);
 		opcodeMap.put("LO", Opcodes.USERID | Opcodes.SESSIONID);
 		opcodeMap.put("PF", Opcodes.USERID | Opcodes.SESSIONID);
-		opcodeMap.put("AF", Opcodes.USERID | Opcodes.SESSIONID | Opcodes.USERNAME);
 		opcodeMap.put("RF", Opcodes.USERID | Opcodes.SESSIONID | Opcodes.USERNAME);
+		opcodeMap.put("SR", Opcodes.USERID | Opcodes.SESSIONID | Opcodes.USERNAME);
+		opcodeMap.put("AR", Opcodes.USERID | Opcodes.SESSIONID);
+		opcodeMap.put("DR", Opcodes.USERID | Opcodes.SESSIONID);
 		opcodeMap.put("PR", Opcodes.USERID | Opcodes.SESSIONID);
 		opcodeMap.put("PC", Opcodes.USERID | Opcodes.SESSIONID);
 		opcodeMap.put("CC", Opcodes.USERID | Opcodes.SESSIONID | Opcodes.USERNAME);
+		opcodeMap.put("CI", Opcodes.USERID | Opcodes.SESSIONID | Opcodes.USERNAME);
 		opcodeMap.put("CO", Opcodes.USERID | Opcodes.SESSIONID | Opcodes.CHATID);
 		opcodeMap.put("US", Opcodes.USERID | Opcodes.SESSIONID | Opcodes.USERNAME);
 		opcodeMap.put("UC", Opcodes.USERID | Opcodes.SESSIONID);

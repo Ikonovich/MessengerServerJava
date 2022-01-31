@@ -33,7 +33,6 @@ public class Cryptographer {
 			int randInt = rand.nextInt(95);
 			char nextChar = (char)(randInt + 32);
 			randString += nextChar;
-			
 		}
 		
 		return randString;
